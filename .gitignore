@@ -1,0 +1,28 @@
+
+# Dependencies
+node_modules/
+client/node_modules/
+server/node_modules/
+
+# Next.js
+client/.next/
+client/out/
+
+# Environment variables
+.env
+.env.*
+!.env.example
+client/.env.local
+server/.env
+
+# Build files
+dist/
+build/
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
