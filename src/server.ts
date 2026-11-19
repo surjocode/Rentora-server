@@ -6,6 +6,10 @@ import { MongoClient, type Db } from "mongodb";
 
 import equipmentRoutes from "./routes/equipment.routes.js";
 import categoryRoutes from "./routes/category.routes.js";
+import favoriteRoutes from "./routes/favorite.routes.js";
+import rentalRoutes from "./routes/rental.routes.js";
+import userRoutes from "./routes/user.routes.js";
+import adminRoutes from "./routes/admin.routes.js";
 
 dotenv.config();
 
@@ -89,6 +93,17 @@ app.get("/health", (_req, res) => {
 app.use("/api/equipment", equipmentRoutes);
 // Category Routes
 app.use("/api/categories", categoryRoutes);
+// Favorite Routes
+app.use("/api/favorites", favoriteRoutes);
+// Rental Routes
+app.use("/api/rentals", rentalRoutes);
+// User Routes
+app.use("/api/users", userRoutes);
+// Admin Routes
+app.use("/api/admin", adminRoutes);
+
+
+
 
 // Not Found Route
 app.use((_req, res) => {
