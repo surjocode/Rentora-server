@@ -1,6 +1,7 @@
 
 import { Router, type Request, type Response } from "express";
 import { getDB } from "../server.js";
+import { verifyToken } from "../middleware/auth.middleware.js";
 
 const router = Router();
 
@@ -14,15 +15,18 @@ interface User {
   updatedAt?: Date;
 }
 
-// Get User Profile
-router.get("/:email", async (req: Request, res: Response) => {
-  try {
-    const email = req.params.email;
+// Protect all user routes
+router.use(verifyToken);
 
-    if (typeof email !== "string" || !email.trim()) {
-      res.status(400).json({
+// Get Logged-in User Profile
+router.get("/", async (req: Request, res: Response) => {
+  try {
+    const email = req.user?.email;
+
+    if (!email) {
+      res.status(401).json({
         success: false,
-        message: "Valid email is required",
+        message: "User authentication required",
       });
       return;
     }
@@ -31,7 +35,7 @@ router.get("/:email", async (req: Request, res: Response) => {
 
     const user = await db.collection<User>("users").findOne(
       {
-        email: email.trim().toLowerCase(),
+        email: email.toLowerCase(),
       },
       {
         projection: {
@@ -67,16 +71,16 @@ router.get("/:email", async (req: Request, res: Response) => {
   }
 });
 
-// Update User Profile
-router.patch("/:email", async (req: Request, res: Response) => {
+// Update Logged-in User Profile
+router.patch("/", async (req: Request, res: Response) => {
   try {
-    const email = req.params.email;
+    const email = req.user?.email;
     const { name, image } = req.body;
 
-    if (typeof email !== "string" || !email.trim()) {
-      res.status(400).json({
+    if (!email) {
+      res.status(401).json({
         success: false,
-        message: "Valid email is required",
+        message: "User authentication required",
       });
       return;
     }
@@ -119,15 +123,28 @@ router.patch("/:email", async (req: Request, res: Response) => {
 
     const db = getDB();
 
-    const result = await db.collection<User>("users").findOneAndUpdate(
+    const result = await db.collection<User>("users").updateOne(
       {
-        email: email.trim().toLowerCase(),
+        email: email.toLowerCase(),
       },
       {
         $set: updates,
+      }
+    );
+
+    if (result.matchedCount === 0) {
+      res.status(404).json({
+        success: false,
+        message: "User not found",
+      });
+      return;
+    }
+
+    const updatedUser = await db.collection<User>("users").findOne(
+      {
+        email: email.toLowerCase(),
       },
       {
-        returnDocument: "after",
         projection: {
           name: 1,
           email: 1,
@@ -137,18 +154,10 @@ router.patch("/:email", async (req: Request, res: Response) => {
       }
     );
 
-    if (!result) {
-      res.status(404).json({
-        success: false,
-        message: "User not found",
-      });
-      return;
-    }
-
     res.status(200).json({
       success: true,
       message: "User profile updated successfully",
-      data: result,
+      data: updatedUser,
     });
   } catch (error) {
     console.error("Update user profile error:", error);
