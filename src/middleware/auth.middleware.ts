@@ -1,16 +1,30 @@
 
-import type { Request, Response, NextFunction, RequestHandler } from "express";
+import type {
+  Request,
+  Response,
+  NextFunction,
+  RequestHandler,
+} from "express";
+
 import { createRemoteJWKSet, jwtVerify } from "jose";
 
-const BETTER_AUTH_URL = process.env.BETTER_AUTH_URL;
+let JWKS: ReturnType<typeof createRemoteJWKSet> | null = null;
 
-if (!BETTER_AUTH_URL) {
-  throw new Error("BETTER_AUTH_URL is missing from .env file");
+function getJWKS() {
+  const BETTER_AUTH_URL = process.env.BETTER_AUTH_URL;
+
+  if (!BETTER_AUTH_URL) {
+    throw new Error("BETTER_AUTH_URL is missing from .env file");
+  }
+
+  if (!JWKS) {
+    JWKS = createRemoteJWKSet(
+      new URL(`${BETTER_AUTH_URL}/api/auth/jwks`)
+    );
+  }
+
+  return JWKS;
 }
-
-const JWKS = createRemoteJWKSet(
-  new URL(`${BETTER_AUTH_URL}/api/auth/jwks`)
-);
 
 export interface AuthenticatedUser {
   email: string;
@@ -25,7 +39,6 @@ declare global {
   }
 }
 
-// Verify JWT Token
 export const verifyToken: RequestHandler = async (
   req: Request,
   res: Response,
@@ -52,7 +65,7 @@ export const verifyToken: RequestHandler = async (
       return;
     }
 
-    const { payload } = await jwtVerify(token, JWKS);
+    const { payload } = await jwtVerify(token, getJWKS());
 
     if (typeof payload.email !== "string") {
       res.status(401).json({
@@ -62,9 +75,21 @@ export const verifyToken: RequestHandler = async (
       return;
     }
 
+    if (
+      payload.role !== "renter" &&
+      payload.role !== "owner" &&
+      payload.role !== "admin"
+    ) {
+      res.status(403).json({
+        success: false,
+        message: "Invalid user role.",
+      });
+      return;
+    }
+
     req.user = {
       email: payload.email,
-      role: typeof payload.role === "string" ? payload.role : "renter",
+      role: payload.role,
     };
 
     next();
@@ -78,12 +103,7 @@ export const verifyToken: RequestHandler = async (
   }
 };
 
-// Renter Role Middleware
-export const verifyRenter: RequestHandler = (
-  req,
-  res,
-  next
-) => {
+export const verifyRenter: RequestHandler = (req, res, next) => {
   if (req.user?.role !== "renter") {
     res.status(403).json({
       success: false,
@@ -95,12 +115,7 @@ export const verifyRenter: RequestHandler = (
   next();
 };
 
-// Owner Role Middleware
-export const verifyOwner: RequestHandler = (
-  req,
-  res,
-  next
-) => {
+export const verifyOwner: RequestHandler = (req, res, next) => {
   if (req.user?.role !== "owner") {
     res.status(403).json({
       success: false,
@@ -112,12 +127,7 @@ export const verifyOwner: RequestHandler = (
   next();
 };
 
-// Admin Role Middleware
-export const verifyAdmin: RequestHandler = (
-  req,
-  res,
-  next
-) => {
+export const verifyAdmin: RequestHandler = (req, res, next) => {
   if (req.user?.role !== "admin") {
     res.status(403).json({
       success: false,
