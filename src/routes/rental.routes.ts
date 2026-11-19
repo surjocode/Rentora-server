@@ -1,7 +1,11 @@
-
 import { Router, type Request, type Response } from "express";
 import { ObjectId } from "mongodb";
 import { getDB } from "../server.js";
+import {
+  verifyToken,
+  verifyRenter,
+  verifyOwner,
+} from "../middleware/auth.middleware.js";
 
 const router = Router();
 
@@ -28,17 +32,18 @@ interface Equipment {
   status: string;
 }
 
-// Create Rental Request
-router.post("/", async (req: Request, res: Response) => {
+// Protect All Rental Routes
+router.use(verifyToken);
+
+// Create Rental Request (Renter Only)
+router.post("/", verifyRenter, async (req: Request, res: Response) => {
   try {
-    const { equipmentId, renterEmail, startDate, endDate } = req.body;
+    const { equipmentId, startDate, endDate } = req.body;
 
     if (
       typeof equipmentId !== "string" ||
-      typeof renterEmail !== "string" ||
       typeof startDate !== "string" ||
-      typeof endDate !== "string" ||
-      !renterEmail.trim()
+      typeof endDate !== "string"
     ) {
       res.status(400).json({
         success: false,
@@ -70,14 +75,22 @@ router.post("/", async (req: Request, res: Response) => {
       return;
     }
 
+    const renterEmail = req.user?.email;
+
+    if (!renterEmail) {
+      res.status(401).json({
+        success: false,
+        message: "User authentication required",
+      });
+      return;
+    }
+
     const db = getDB();
 
-    const equipment = await db
-      .collection<Equipment>("equipment")
-      .findOne({
-        _id: new ObjectId(equipmentId),
-        status: "approved",
-      });
+    const equipment = await db.collection<Equipment>("equipment").findOne({
+      _id: new ObjectId(equipmentId),
+      status: "approved",
+    });
 
     if (!equipment) {
       res.status(404).json({
@@ -87,14 +100,20 @@ router.post("/", async (req: Request, res: Response) => {
       return;
     }
 
-    const existingRental = await db
-      .collection<Rental>("rentals")
-      .findOne({
-        equipmentId: new ObjectId(equipmentId),
-        status: { $in: ["pending", "approved"] },
-        startDate: { $lt: rentalEnd },
-        endDate: { $gt: rentalStart },
+    if (equipment.ownerEmail.toLowerCase() === renterEmail.toLowerCase()) {
+      res.status(400).json({
+        success: false,
+        message: "You cannot rent your own equipment",
       });
+      return;
+    }
+
+    const existingRental = await db.collection<Rental>("rentals").findOne({
+      equipmentId: new ObjectId(equipmentId),
+      status: { $in: ["pending", "approved"] },
+      startDate: { $lt: rentalEnd },
+      endDate: { $gt: rentalStart },
+    });
 
     if (existingRental) {
       res.status(409).json({
@@ -105,14 +124,13 @@ router.post("/", async (req: Request, res: Response) => {
     }
 
     const totalDays = Math.ceil(
-      (rentalEnd.getTime() - rentalStart.getTime()) /
-        (1000 * 60 * 60 * 24)
+      (rentalEnd.getTime() - rentalStart.getTime()) / (1000 * 60 * 60 * 24),
     );
 
     const newRental: Rental = {
       equipmentId: new ObjectId(equipmentId),
-      renterEmail: renterEmail.trim().toLowerCase(),
-      ownerEmail: equipment.ownerEmail,
+      renterEmail: renterEmail.toLowerCase(),
+      ownerEmail: equipment.ownerEmail.toLowerCase(),
       startDate: rentalStart,
       endDate: rentalEnd,
       totalDays,
@@ -123,9 +141,7 @@ router.post("/", async (req: Request, res: Response) => {
       updatedAt: new Date(),
     };
 
-    const result = await db
-      .collection<Rental>("rentals")
-      .insertOne(newRental);
+    const result = await db.collection<Rental>("rentals").insertOne(newRental);
 
     res.status(201).json({
       success: true,
@@ -145,15 +161,15 @@ router.post("/", async (req: Request, res: Response) => {
   }
 });
 
-// Get My Rentals
-router.get("/my/:email", async (req: Request, res: Response) => {
+// Get My Rentals (Renter Only)
+router.get("/my", verifyRenter, async (req: Request, res: Response) => {
   try {
-    const email = req.params.email;
+    const renterEmail = req.user?.email;
 
-    if (typeof email !== "string" || !email.trim()) {
-      res.status(400).json({
+    if (!renterEmail) {
+      res.status(401).json({
         success: false,
-        message: "Valid email is required",
+        message: "User authentication required",
       });
       return;
     }
@@ -165,7 +181,7 @@ router.get("/my/:email", async (req: Request, res: Response) => {
       .aggregate([
         {
           $match: {
-            renterEmail: email.trim().toLowerCase(),
+            renterEmail: renterEmail.toLowerCase(),
           },
         },
         {
@@ -205,15 +221,15 @@ router.get("/my/:email", async (req: Request, res: Response) => {
   }
 });
 
-// Get Owner Rental Requests
-router.get("/owner/:email", async (req: Request, res: Response) => {
+// Get Owner Rental Requests (Owner Only)
+router.get("/owner", verifyOwner, async (req: Request, res: Response) => {
   try {
-    const email = req.params.email;
+    const ownerEmail = req.user?.email;
 
-    if (typeof email !== "string" || !email.trim()) {
-      res.status(400).json({
+    if (!ownerEmail) {
+      res.status(401).json({
         success: false,
-        message: "Valid owner email is required",
+        message: "User authentication required",
       });
       return;
     }
@@ -225,7 +241,7 @@ router.get("/owner/:email", async (req: Request, res: Response) => {
       .aggregate([
         {
           $match: {
-            ownerEmail: email.trim().toLowerCase(),
+            ownerEmail: ownerEmail.toLowerCase(),
           },
         },
         {
@@ -265,125 +281,148 @@ router.get("/owner/:email", async (req: Request, res: Response) => {
   }
 });
 
-// Approve or Reject Rental
-router.patch("/:id/status", async (req: Request, res: Response) => {
-  try {
-    const id = req.params.id;
-    const { status, ownerEmail } = req.body;
+// Approve or Reject Rental (Owner Only)
 
-    if (typeof id !== "string" || !ObjectId.isValid(id)) {
-      res.status(400).json({
-        success: false,
-        message: "Invalid rental ID",
-      });
-      return;
-    }
+router.patch(
+  "/:id/status",
+  verifyOwner,
+  async (req: Request, res: Response) => {
+    try {
+      const id = req.params.id;
+      const status = req.body.status;
 
-    if (
-      !["approved", "rejected"].includes(status) ||
-      typeof ownerEmail !== "string" ||
-      !ownerEmail.trim()
-    ) {
-      res.status(400).json({
-        success: false,
-        message: "Valid status and owner email are required",
-      });
-      return;
-    }
-
-    const db = getDB();
-
-    const result = await db.collection<Rental>("rentals").updateOne(
-      {
-        _id: new ObjectId(id),
-        ownerEmail: ownerEmail.trim().toLowerCase(),
-        status: "pending",
-      },
-      {
-        $set: {
-          status,
-          updatedAt: new Date(),
-        },
+      // Validate rental ID
+      if (typeof id !== "string" || !ObjectId.isValid(id)) {
+        res.status(400).json({
+          success: false,
+          message: "Invalid rental ID",
+        });
+        return;
       }
-    );
 
-    if (result.matchedCount === 0) {
-      res.status(404).json({
-        success: false,
-        message: "Pending rental request not found",
-      });
-      return;
-    }
-
-    res.status(200).json({
-      success: true,
-      message: `Rental request ${status} successfully`,
-    });
-  } catch (error) {
-    console.error("Update rental status error:", error);
-
-    res.status(500).json({
-      success: false,
-      message: "Failed to update rental status",
-    });
-  }
-});
-
-// Cancel Rental
-router.patch("/:id/cancel", async (req: Request, res: Response) => {
-  try {
-    const id = req.params.id;
-    const { renterEmail } = req.body;
-
-    if (
-      typeof id !== "string" ||
-      !ObjectId.isValid(id) ||
-      typeof renterEmail !== "string" ||
-      !renterEmail.trim()
-    ) {
-      res.status(400).json({
-        success: false,
-        message: "Valid rental ID and renter email are required",
-      });
-      return;
-    }
-
-    const db = getDB();
-
-    const result = await db.collection<Rental>("rentals").updateOne(
-      {
-        _id: new ObjectId(id),
-        renterEmail: renterEmail.trim().toLowerCase(),
-        status: "pending",
-      },
-      {
-        $set: {
-          status: "cancelled",
-          updatedAt: new Date(),
-        },
+      // Validate rental status
+      if (status !== "approved" && status !== "rejected") {
+        res.status(400).json({
+          success: false,
+          message: "Status must be approved or rejected",
+        });
+        return;
       }
-    );
 
-    if (result.matchedCount === 0) {
-      res.status(404).json({
-        success: false,
-        message: "Pending rental request not found",
+      // Get authenticated owner's email
+      const ownerEmail = req.user?.email;
+
+      if (!ownerEmail) {
+        res.status(401).json({
+          success: false,
+          message: "User authentication required",
+        });
+        return;
+      }
+
+      const db = getDB();
+
+      const result = await db.collection<Rental>("rentals").updateOne(
+        {
+          _id: new ObjectId(id),
+          ownerEmail: ownerEmail.toLowerCase(),
+          status: "pending",
+        },
+        {
+          $set: {
+            status,
+            updatedAt: new Date(),
+          },
+        }
+      );
+
+      if (result.matchedCount === 0) {
+        res.status(404).json({
+          success: false,
+          message: "Pending rental request not found",
+        });
+        return;
+      }
+
+      res.status(200).json({
+        success: true,
+        message: `Rental request ${status} successfully`,
       });
-      return;
+    } catch (error) {
+      console.error("Update rental status error:", error);
+
+      res.status(500).json({
+        success: false,
+        message: "Failed to update rental status",
+      });
     }
-
-    res.status(200).json({
-      success: true,
-      message: "Rental cancelled successfully",
-    });
-  } catch (error) {
-    console.error("Cancel rental error:", error);
-
-    res.status(500).json({
-      success: false,
-      message: "Failed to cancel rental",
-    });
   }
-});
+);
+
+
+// Cancel Rental (Renter Only)
+router.patch(
+  "/:id/cancel",
+  verifyRenter,
+  async (req: Request, res: Response) => {
+    try {
+      const id = req.params.id;
+
+      if (typeof id !== "string" || !ObjectId.isValid(id)) {
+        res.status(400).json({
+          success: false,
+          message: "Invalid rental ID",
+        });
+        return;
+      }
+
+      const renterEmail = req.user?.email;
+
+      if (!renterEmail) {
+        res.status(401).json({
+          success: false,
+          message: "User authentication required",
+        });
+        return;
+      }
+
+      const db = getDB();
+
+      const result = await db.collection<Rental>("rentals").updateOne(
+        {
+          _id: new ObjectId(id),
+          renterEmail: renterEmail.toLowerCase(),
+          status: "pending",
+        },
+        {
+          $set: {
+            status: "cancelled",
+            updatedAt: new Date(),
+          },
+        },
+      );
+
+      if (result.matchedCount === 0) {
+        res.status(404).json({
+          success: false,
+          message: "Pending rental request not found",
+        });
+        return;
+      }
+
+      res.status(200).json({
+        success: true,
+        message: "Rental cancelled successfully",
+      });
+    } catch (error) {
+      console.error("Cancel rental error:", error);
+
+      res.status(500).json({
+        success: false,
+        message: "Failed to cancel rental",
+      });
+    }
+  },
+);
 
 export default router;

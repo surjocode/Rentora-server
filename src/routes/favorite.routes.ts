@@ -2,6 +2,7 @@
 import { Router, type Request, type Response } from "express";
 import { ObjectId } from "mongodb";
 import { getDB } from "../server.js";
+import { verifyToken } from "../middleware/auth.middleware.js";
 
 const router = Router();
 
@@ -12,15 +13,18 @@ interface Favorite {
   createdAt: Date;
 }
 
+// Protect All Favorite Routes
+router.use(verifyToken);
+
 // Add to Favorites
 router.post("/", async (req: Request, res: Response) => {
   try {
-    const { ownerEmail, equipmentId } = req.body;
+    const { equipmentId } = req.body;
 
-    if (!ownerEmail || !equipmentId) {
+    if (!equipmentId) {
       res.status(400).json({
         success: false,
-        message: "Email and equipment ID are required",
+        message: "Equipment ID is required",
       });
       return;
     }
@@ -29,6 +33,16 @@ router.post("/", async (req: Request, res: Response) => {
       res.status(400).json({
         success: false,
         message: "Invalid equipment ID",
+      });
+      return;
+    }
+
+    const ownerEmail = req.user?.email;
+
+    if (!ownerEmail) {
+      res.status(401).json({
+        success: false,
+        message: "User authentication required",
       });
       return;
     }
@@ -51,7 +65,7 @@ router.post("/", async (req: Request, res: Response) => {
     const favoritesCollection = db.collection<Favorite>("favorites");
 
     const existingFavorite = await favoritesCollection.findOne({
-      ownerEmail: String(ownerEmail).trim().toLowerCase(),
+      ownerEmail: ownerEmail.toLowerCase(),
       equipmentId: new ObjectId(equipmentId),
     });
 
@@ -64,7 +78,7 @@ router.post("/", async (req: Request, res: Response) => {
     }
 
     const newFavorite: Favorite = {
-      ownerEmail: String(ownerEmail).trim().toLowerCase(),
+      ownerEmail: ownerEmail.toLowerCase(),
       equipmentId: new ObjectId(equipmentId),
       createdAt: new Date(),
     };
@@ -90,14 +104,14 @@ router.post("/", async (req: Request, res: Response) => {
 });
 
 // Get My Favorites
-router.get("/:email", async (req: Request, res: Response) => {
+router.get("/", async (req: Request, res: Response) => {
   try {
-    const email = req.params.email;
+    const ownerEmail = req.user?.email;
 
-    if (typeof email !== "string" || !email.trim()) {
-      res.status(400).json({
+    if (!ownerEmail) {
+      res.status(401).json({
         success: false,
-        message: "Valid email is required",
+        message: "User authentication required",
       });
       return;
     }
@@ -109,7 +123,7 @@ router.get("/:email", async (req: Request, res: Response) => {
       .aggregate([
         {
           $match: {
-            ownerEmail: email.trim().toLowerCase(),
+            ownerEmail: ownerEmail.toLowerCase(),
           },
         },
         {
@@ -152,19 +166,27 @@ router.get("/:email", async (req: Request, res: Response) => {
 });
 
 // Remove from Favorites
-router.delete("/:email/:equipmentId", async (req: Request, res: Response) => {
+router.delete("/:equipmentId", async (req: Request, res: Response) => {
   try {
-    const { email, equipmentId } = req.params;
+    const equipmentId = req.params.equipmentId;
 
     if (
-      typeof email !== "string" ||
       typeof equipmentId !== "string" ||
-      !email.trim() ||
       !ObjectId.isValid(equipmentId)
     ) {
       res.status(400).json({
         success: false,
-        message: "Valid email and equipment ID are required",
+        message: "Invalid equipment ID",
+      });
+      return;
+    }
+
+    const ownerEmail = req.user?.email;
+
+    if (!ownerEmail) {
+      res.status(401).json({
+        success: false,
+        message: "User authentication required",
       });
       return;
     }
@@ -172,7 +194,7 @@ router.delete("/:email/:equipmentId", async (req: Request, res: Response) => {
     const db = getDB();
 
     const result = await db.collection<Favorite>("favorites").deleteOne({
-      ownerEmail: email.trim().toLowerCase(),
+      ownerEmail: ownerEmail.toLowerCase(),
       equipmentId: new ObjectId(equipmentId),
     });
 

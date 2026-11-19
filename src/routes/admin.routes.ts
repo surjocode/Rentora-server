@@ -2,8 +2,15 @@
 import { Router, type Request, type Response } from "express";
 import { ObjectId } from "mongodb";
 import { getDB } from "../server.js";
+import {
+  verifyToken,
+  verifyAdmin,
+} from "../middleware/auth.middleware.js";
 
 const router = Router();
+
+// Protect all Admin Routes
+router.use(verifyToken, verifyAdmin);
 
 // Get All Users
 router.get("/users", async (_req: Request, res: Response) => {
@@ -56,7 +63,10 @@ router.patch("/users/:id/role", async (req: Request, res: Response) => {
       return;
     }
 
-    if (!["renter", "owner", "admin"].includes(role)) {
+    if (
+      typeof role !== "string" ||
+      !["renter", "owner", "admin"].includes(role)
+    ) {
       res.status(400).json({
         success: false,
         message: "Invalid user role",
@@ -67,9 +77,7 @@ router.patch("/users/:id/role", async (req: Request, res: Response) => {
     const db = getDB();
 
     const result = await db.collection("users").updateOne(
-      {
-        _id: new ObjectId(id),
-      },
+      { _id: new ObjectId(id) },
       {
         $set: {
           role,
@@ -116,7 +124,10 @@ router.patch(
         return;
       }
 
-      if (!["approved", "rejected"].includes(status)) {
+      if (
+        typeof status !== "string" ||
+        !["approved", "rejected"].includes(status)
+      ) {
         res.status(400).json({
           success: false,
           message: "Status must be approved or rejected",
@@ -179,22 +190,12 @@ router.get("/stats", async (_req: Request, res: Response) => {
     ] = await Promise.all([
       db.collection("users").countDocuments(),
       db.collection("equipment").countDocuments(),
-      db.collection("equipment").countDocuments({
-        status: "approved",
-      }),
-      db.collection("equipment").countDocuments({
-        status: "pending",
-      }),
-      db.collection("equipment").countDocuments({
-        status: "rejected",
-      }),
+      db.collection("equipment").countDocuments({ status: "approved" }),
+      db.collection("equipment").countDocuments({ status: "pending" }),
+      db.collection("equipment").countDocuments({ status: "rejected" }),
       db.collection("rentals").countDocuments(),
-      db.collection("rentals").countDocuments({
-        status: "pending",
-      }),
-      db.collection("rentals").countDocuments({
-        status: "approved",
-      }),
+      db.collection("rentals").countDocuments({ status: "pending" }),
+      db.collection("rentals").countDocuments({ status: "approved" }),
     ]);
 
     res.status(200).json({
