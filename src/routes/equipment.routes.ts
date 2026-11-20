@@ -116,6 +116,51 @@ router.get("/", async (req: Request, res: Response) => {
   }
 });
 
+
+// Get All Equipment Belonging to Logged-in Owner
+router.get(
+  "/my",
+  verifyToken,
+  verifyOwner,
+  async (req: Request, res: Response) => {
+    try {
+      const ownerEmail = req.user?.email;
+
+      if (!ownerEmail) {
+        res.status(401).json({
+          success: false,
+          message: "User authentication required",
+        });
+        return;
+      }
+
+      const db = getDB();
+
+      const equipment = await db
+        .collection<Equipment>("equipment")
+        .find({
+          ownerEmail: ownerEmail.toLowerCase(),
+        })
+        .sort({ createdAt: -1 })
+        .toArray();
+
+      res.status(200).json({
+        success: true,
+        message: "Your equipment fetched successfully",
+        data: equipment,
+      });
+    } catch (error) {
+      console.error("Get owner equipment error:", error);
+
+      res.status(500).json({
+        success: false,
+        message: "Failed to fetch your equipment",
+      });
+    }
+  }
+);
+
+
 // Get Single Approved Equipment
 router.get("/:id", async (req: Request, res: Response) => {
   try {
