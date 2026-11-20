@@ -14,9 +14,15 @@ interface Equipment {
   name: string;
   description: string;
   category: string;
+  rentalType: "daily" | "weekly" | "monthly";
   pricePerDay: number;
+  availableQuantity: number;
+  condition: string;
+  brand: string;
+  model: string;
   location: string;
   image: string;
+  termsAndConditions: string;
   ownerEmail: string;
   status: "pending" | "approved" | "rejected";
   createdAt: Date;
@@ -28,6 +34,8 @@ type SortOption =
   | "oldest"
   | "price-asc"
   | "price-desc";
+
+const rentalTypes = ["daily", "weekly", "monthly"] as const;
 
 // Get All Approved Equipment with Search, Filter and Sort
 router.get("/", async (req: Request, res: Response) => {
@@ -43,6 +51,23 @@ router.get("/", async (req: Request, res: Response) => {
       typeof req.query.category === "string"
         ? req.query.category.trim()
         : "";
+
+    const rentalType =
+      typeof req.query.rentalType === "string"
+        ? req.query.rentalType.trim()
+        : "";
+
+    const minPrice =
+      typeof req.query.minPrice === "string"
+        ? Number(req.query.minPrice)
+        : undefined;
+
+    const maxPrice =
+      typeof req.query.maxPrice === "string"
+        ? Number(req.query.maxPrice)
+        : undefined;
+
+    const availableOnly = req.query.available === "true";
 
     const requestedSort =
       typeof req.query.sort === "string"
@@ -66,7 +91,7 @@ router.get("/", async (req: Request, res: Response) => {
       status: "approved",
     };
 
-    // Search by name, category or location
+    // Search by name, category, location, brand or model
     if (search) {
       const escapedSearch = search.replace(
         /[.*+?^${}()|[\]\\]/g,
@@ -79,12 +104,74 @@ router.get("/", async (req: Request, res: Response) => {
         { name: searchRegex },
         { category: searchRegex },
         { location: searchRegex },
+        { brand: searchRegex },
+        { model: searchRegex },
       ];
     }
 
     // Filter by category
     if (category) {
       filter.category = category;
+    }
+
+    // Filter by rental type
+    if (rentalType) {
+      if (!rentalTypes.includes(rentalType as (typeof rentalTypes)[number])) {
+        res.status(400).json({
+          success: false,
+          message: "Invalid rental type",
+        });
+        return;
+      }
+
+      filter.rentalType = rentalType as Equipment["rentalType"];
+    }
+
+    // Filter by minimum and maximum price
+    if (
+      minPrice !== undefined &&
+      (!Number.isFinite(minPrice) || minPrice < 0)
+    ) {
+      res.status(400).json({
+        success: false,
+        message: "Invalid minimum price",
+      });
+      return;
+    }
+
+    if (
+      maxPrice !== undefined &&
+      (!Number.isFinite(maxPrice) || maxPrice < 0)
+    ) {
+      res.status(400).json({
+        success: false,
+        message: "Invalid maximum price",
+      });
+      return;
+    }
+
+    if (
+      minPrice !== undefined &&
+      maxPrice !== undefined &&
+      minPrice > maxPrice
+    ) {
+      res.status(400).json({
+        success: false,
+        message: "Minimum price cannot exceed maximum price",
+      });
+      return;
+    }
+
+    if (minPrice !== undefined || maxPrice !== undefined) {
+      filter.pricePerDay = {
+        ...(minPrice !== undefined ? { $gte: minPrice } : {}),
+        ...(maxPrice !== undefined ? { $lte: maxPrice } : {}),
+      };
+    }
+
+    // Show only equipment with available quantity
+    if (availableOnly) {
+      filter.availableQuantity = { $gt: 0 };
     }
 
     // Sorting options
@@ -115,7 +202,6 @@ router.get("/", async (req: Request, res: Response) => {
     });
   }
 });
-
 
 // Get All Equipment Belonging to Logged-in Owner
 router.get(
@@ -159,7 +245,6 @@ router.get(
     }
   }
 );
-
 
 // Get Single Approved Equipment
 router.get("/:id", async (req: Request, res: Response) => {
@@ -216,18 +301,36 @@ router.post(
         name,
         description,
         category,
+        rentalType,
         pricePerDay,
+        availableQuantity,
+        condition,
+        brand,
+        model,
         location,
         image,
+        termsAndConditions,
       } = req.body;
 
+      const requiredFields = [
+        name,
+        description,
+        category,
+        rentalType,
+        condition,
+        brand,
+        model,
+        location,
+        image,
+        termsAndConditions,
+      ];
+
       if (
-        !name ||
-        !description ||
-        !category ||
+        requiredFields.some(
+          (field) => typeof field !== "string" || !field.trim()
+        ) ||
         pricePerDay === undefined ||
-        !location ||
-        !image
+        availableQuantity === undefined
       ) {
         res.status(400).json({
           success: false,
@@ -236,12 +339,29 @@ router.post(
         return;
       }
 
+      if (!rentalTypes.includes(rentalType)) {
+        res.status(400).json({
+          success: false,
+          message: "Rental type must be daily, weekly or monthly",
+        });
+        return;
+      }
+
       const price = Number(pricePerDay);
+      const quantity = Number(availableQuantity);
 
       if (!Number.isFinite(price) || price <= 0) {
         res.status(400).json({
           success: false,
-          message: "Price per day must be a positive number",
+          message: "Price must be a positive number",
+        });
+        return;
+      }
+
+      if (!Number.isInteger(quantity) || quantity <= 0) {
+        res.status(400).json({
+          success: false,
+          message: "Available quantity must be a positive integer",
         });
         return;
       }
@@ -259,12 +379,18 @@ router.post(
       const db = getDB();
 
       const newEquipment: Equipment = {
-        name: String(name).trim(),
-        description: String(description).trim(),
-        category: String(category).trim(),
+        name: name.trim(),
+        description: description.trim(),
+        category: category.trim(),
+        rentalType,
         pricePerDay: price,
-        location: String(location).trim(),
-        image: String(image).trim(),
+        availableQuantity: quantity,
+        condition: condition.trim(),
+        brand: brand.trim(),
+        model: model.trim(),
+        location: location.trim(),
+        image: image.trim(),
+        termsAndConditions: termsAndConditions.trim(),
         ownerEmail: ownerEmail.toLowerCase(),
         status: "pending",
         createdAt: new Date(),
@@ -324,22 +450,68 @@ router.patch(
         name,
         description,
         category,
+        rentalType,
         pricePerDay,
+        availableQuantity,
+        condition,
+        brand,
+        model,
         location,
         image,
+        termsAndConditions,
       } = req.body;
 
       const updates: Partial<Equipment> = {};
 
-      if (name !== undefined) updates.name = String(name).trim();
-      if (description !== undefined)
-        updates.description = String(description).trim();
-      if (category !== undefined)
-        updates.category = String(category).trim();
-      if (location !== undefined)
-        updates.location = String(location).trim();
-      if (image !== undefined)
-        updates.image = String(image).trim();
+      const stringFields = {
+        name,
+        description,
+        category,
+        condition,
+        brand,
+        model,
+        location,
+        image,
+        termsAndConditions,
+      };
+
+      for (const [key, value] of Object.entries(stringFields)) {
+        if (value !== undefined) {
+          if (typeof value !== "string" || !value.trim()) {
+            res.status(400).json({
+              success: false,
+              message: `${key} must be a non-empty string`,
+            });
+            return;
+          }
+
+          if (key === "name") updates.name = value.trim();
+          if (key === "description") updates.description = value.trim();
+          if (key === "category") updates.category = value.trim();
+          if (key === "condition") updates.condition = value.trim();
+          if (key === "brand") updates.brand = value.trim();
+          if (key === "model") updates.model = value.trim();
+          if (key === "location") updates.location = value.trim();
+          if (key === "image") updates.image = value.trim();
+          if (key === "termsAndConditions")
+            updates.termsAndConditions = value.trim();
+        }
+      }
+
+      if (rentalType !== undefined) {
+        if (
+          typeof rentalType !== "string" ||
+          !rentalTypes.includes(rentalType as (typeof rentalTypes)[number])
+        ) {
+          res.status(400).json({
+            success: false,
+            message: "Rental type must be daily, weekly or monthly",
+          });
+          return;
+        }
+
+        updates.rentalType = rentalType as Equipment["rentalType"];
+      }
 
       if (pricePerDay !== undefined) {
         const price = Number(pricePerDay);
@@ -347,12 +519,26 @@ router.patch(
         if (!Number.isFinite(price) || price <= 0) {
           res.status(400).json({
             success: false,
-            message: "Price per day must be a positive number",
+            message: "Price must be a positive number",
           });
           return;
         }
 
         updates.pricePerDay = price;
+      }
+
+      if (availableQuantity !== undefined) {
+        const quantity = Number(availableQuantity);
+
+        if (!Number.isInteger(quantity) || quantity <= 0) {
+          res.status(400).json({
+            success: false,
+            message: "Available quantity must be a positive integer",
+          });
+          return;
+        }
+
+        updates.availableQuantity = quantity;
       }
 
       if (Object.keys(updates).length === 0) {

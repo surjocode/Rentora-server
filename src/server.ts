@@ -10,6 +10,7 @@ import favoriteRoutes from "./routes/favorite.routes.js";
 import rentalRoutes from "./routes/rental.routes.js";
 import userRoutes from "./routes/user.routes.js";
 import adminRoutes from "./routes/admin.routes.js";
+import uploadRoutes from "./routes/upload.routes.js";
 
 dotenv.config();
 
@@ -101,6 +102,8 @@ app.use("/api/rentals", rentalRoutes);
 app.use("/api/users", userRoutes);
 // Admin Routes
 app.use("/api/admin", adminRoutes);
+
+app.use("/api/upload", uploadRoutes);
 
 
 
