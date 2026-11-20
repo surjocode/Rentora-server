@@ -1,6 +1,6 @@
 
 import { Router, type Request, type Response } from "express";
-import { ObjectId } from "mongodb";
+import { ObjectId, type Filter } from "mongodb";
 import { getDB } from "../server.js";
 import {
   verifyToken,
@@ -23,15 +23,82 @@ interface Equipment {
   updatedAt: Date;
 }
 
-// Get All Approved Equipment
-router.get("/", async (_req: Request, res: Response) => {
+type SortOption =
+  | "newest"
+  | "oldest"
+  | "price-asc"
+  | "price-desc";
+
+// Get All Approved Equipment with Search, Filter and Sort
+router.get("/", async (req: Request, res: Response) => {
   try {
     const db = getDB();
 
+    const search =
+      typeof req.query.search === "string"
+        ? req.query.search.trim()
+        : "";
+
+    const category =
+      typeof req.query.category === "string"
+        ? req.query.category.trim()
+        : "";
+
+    const requestedSort =
+      typeof req.query.sort === "string"
+        ? req.query.sort
+        : "newest";
+
+    const validSortOptions: SortOption[] = [
+      "newest",
+      "oldest",
+      "price-asc",
+      "price-desc",
+    ];
+
+    const sort: SortOption = validSortOptions.includes(
+      requestedSort as SortOption
+    )
+      ? (requestedSort as SortOption)
+      : "newest";
+
+    const filter: Filter<Equipment> = {
+      status: "approved",
+    };
+
+    // Search by name, category or location
+    if (search) {
+      const escapedSearch = search.replace(
+        /[.*+?^${}()|[\]\\]/g,
+        "\\$&"
+      );
+
+      const searchRegex = new RegExp(escapedSearch, "i");
+
+      filter.$or = [
+        { name: searchRegex },
+        { category: searchRegex },
+        { location: searchRegex },
+      ];
+    }
+
+    // Filter by category
+    if (category) {
+      filter.category = category;
+    }
+
+    // Sorting options
+    const sortOptions = {
+      newest: { createdAt: -1 },
+      oldest: { createdAt: 1 },
+      "price-asc": { pricePerDay: 1 },
+      "price-desc": { pricePerDay: -1 },
+    } as const;
+
     const equipment = await db
       .collection<Equipment>("equipment")
-      .find({ status: "approved" })
-      .sort({ createdAt: -1 })
+      .find(filter)
+      .sort(sortOptions[sort])
       .toArray();
 
     res.status(200).json({
@@ -222,9 +289,12 @@ router.patch(
       if (name !== undefined) updates.name = String(name).trim();
       if (description !== undefined)
         updates.description = String(description).trim();
-      if (category !== undefined) updates.category = String(category).trim();
-      if (location !== undefined) updates.location = String(location).trim();
-      if (image !== undefined) updates.image = String(image).trim();
+      if (category !== undefined)
+        updates.category = String(category).trim();
+      if (location !== undefined)
+        updates.location = String(location).trim();
+      if (image !== undefined)
+        updates.image = String(image).trim();
 
       if (pricePerDay !== undefined) {
         const price = Number(pricePerDay);
