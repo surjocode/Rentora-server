@@ -9,7 +9,7 @@ const router = Router();
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: {
-    fileSize: 5 * 1024 * 1024, // Maximum 5 MB
+    fileSize: 5 * 1024 * 1024,
   },
   fileFilter: (_req, file, callback) => {
     const allowedTypes = [
@@ -20,7 +20,7 @@ const upload = multer({
     ];
 
     if (!allowedTypes.includes(file.mimetype)) {
-      callback(null, false);
+      callback(new Error("Only JPEG, PNG, WebP and GIF images are allowed"));
       return;
     }
 
@@ -48,7 +48,9 @@ router.post(
   (req, res, next) => {
     upload.single("image")(req, res, (error) => {
       if (error instanceof multer.MulterError) {
-        res.status(error.code === "LIMIT_FILE_SIZE" ? 413 : 400).json({
+        res.status(
+          error.code === "LIMIT_FILE_SIZE" ? 413 : 400
+        ).json({
           success: false,
           message:
             error.code === "LIMIT_FILE_SIZE"
@@ -61,7 +63,10 @@ router.post(
       if (error) {
         res.status(400).json({
           success: false,
-          message: "Invalid image upload",
+          message:
+            error instanceof Error
+              ? error.message
+              : "Invalid image upload",
         });
         return;
       }
@@ -69,7 +74,7 @@ router.post(
       next();
     });
   },
-  async (req: Request, res: Response) => {
+  async (req: Request, res: Response): Promise<void> => {
     try {
       const image = req.file;
 
@@ -82,8 +87,11 @@ router.post(
       }
 
       const apiKey = process.env.IMGBB_API_KEY;
+     
 
       if (!apiKey) {
+        console.error("IMGBB_API_KEY is missing");
+
         res.status(500).json({
           success: false,
           message: "Image upload configuration is missing",
@@ -97,21 +105,28 @@ router.post(
       const formData = new URLSearchParams();
       formData.append("image", base64Image);
 
+      // ImgBB API URL
+      const uploadURL = new URL("https://api.imgbb.com/1/upload");
+      uploadURL.searchParams.set("key", apiKey);
+
       // Upload image to ImgBB
-      const response = await fetch(
-        `https://api.imgbb.com/1/upload?key=${apiKey}`,
-        {
-          method: "POST",
-          body: formData,
-        }
-      );
+      const response = await fetch(uploadURL, {
+        method: "POST",
+        body: formData,
+      });
 
       const result = (await response.json()) as ImgBBResponse;
 
       if (!response.ok || !result.success || !result.data?.url) {
+        console.error("ImgBB upload failed:", {
+          status: response.status,
+          message: result.error?.message || "Unknown ImgBB error",
+        });
+
         res.status(502).json({
           success: false,
-          message: result.error?.message || "Failed to upload image",
+          message:
+            result.error?.message || "Failed to upload image to ImgBB",
         });
         return;
       }
@@ -124,7 +139,10 @@ router.post(
         },
       });
     } catch (error) {
-      console.error("Image upload error:", error);
+      console.error(
+        "Image upload error:",
+        error instanceof Error ? error.message : "Unknown error"
+      );
 
       res.status(500).json({
         success: false,

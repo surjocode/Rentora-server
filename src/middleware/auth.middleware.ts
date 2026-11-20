@@ -8,27 +8,11 @@ import type {
 
 import { createRemoteJWKSet, jwtVerify } from "jose";
 
-let JWKS: ReturnType<typeof createRemoteJWKSet> | null = null;
-
-function getJWKS() {
-  const BETTER_AUTH_URL = process.env.BETTER_AUTH_URL;
-
-  if (!BETTER_AUTH_URL) {
-    throw new Error("BETTER_AUTH_URL is missing from .env file");
-  }
-
-  if (!JWKS) {
-    JWKS = createRemoteJWKSet(
-      new URL(`${BETTER_AUTH_URL}/api/auth/jwks`)
-    );
-  }
-
-  return JWKS;
-}
+type UserRole = "renter" | "owner" | "admin";
 
 export interface AuthenticatedUser {
   email: string;
-  role: string;
+  role: UserRole;
 }
 
 declare global {
@@ -39,6 +23,25 @@ declare global {
   }
 }
 
+let JWKS: ReturnType<typeof createRemoteJWKSet> | null = null;
+
+function getAuthConfig() {
+  const baseURL = process.env.BETTER_AUTH_URL?.replace(/\/+$/, "");
+
+  if (!baseURL) {
+    throw new Error("BETTER_AUTH_URL is missing from backend .env");
+  }
+
+  if (!JWKS) {
+    JWKS = createRemoteJWKSet(
+      new URL(`${baseURL}/api/auth/jwks`)
+    );
+  }
+
+  return { baseURL, JWKS };
+}
+
+// Verify JWT token
 export const verifyToken: RequestHandler = async (
   req: Request,
   res: Response,
@@ -47,7 +50,7 @@ export const verifyToken: RequestHandler = async (
   try {
     const authorization = req.headers.authorization;
 
-    if (!authorization || !authorization.startsWith("Bearer ")) {
+    if (!authorization?.startsWith("Bearer ")) {
       res.status(401).json({
         success: false,
         message: "Unauthorized. Token is required.",
@@ -55,7 +58,7 @@ export const verifyToken: RequestHandler = async (
       return;
     }
 
-    const token = authorization.split(" ")[1];
+    const token = authorization.slice(7).trim();
 
     if (!token) {
       res.status(401).json({
@@ -65,20 +68,28 @@ export const verifyToken: RequestHandler = async (
       return;
     }
 
-    const { payload } = await jwtVerify(token, getJWKS());
+    const { baseURL, JWKS } = getAuthConfig();
 
-    if (typeof payload.email !== "string") {
+    const { payload } = await jwtVerify(token, JWKS, {
+      issuer: baseURL,
+      audience: baseURL,
+    });
+
+    const email = payload.email;
+    const role = payload.role;
+
+    if (typeof email !== "string") {
       res.status(401).json({
         success: false,
-        message: "Invalid token payload.",
+        message: "Invalid token email.",
       });
       return;
     }
 
     if (
-      payload.role !== "renter" &&
-      payload.role !== "owner" &&
-      payload.role !== "admin"
+      role !== "renter" &&
+      role !== "owner" &&
+      role !== "admin"
     ) {
       res.status(403).json({
         success: false,
@@ -88,13 +99,20 @@ export const verifyToken: RequestHandler = async (
     }
 
     req.user = {
-      email: payload.email,
-      role: payload.role,
+      email,
+      role,
     };
+
+    console.log("JWT verified successfully:", {
+      role: req.user.role,
+    });
 
     next();
   } catch (error) {
-    console.error("JWT verification error:", error);
+    console.error(
+      "JWT verification failed:",
+      error instanceof Error ? error.message : "Unknown error"
+    );
 
     res.status(401).json({
       success: false,
@@ -103,7 +121,12 @@ export const verifyToken: RequestHandler = async (
   }
 };
 
-export const verifyRenter: RequestHandler = (req, res, next) => {
+// Renter permission
+export const verifyRenter: RequestHandler = (
+  req,
+  res,
+  next
+) => {
   if (req.user?.role !== "renter") {
     res.status(403).json({
       success: false,
@@ -115,7 +138,16 @@ export const verifyRenter: RequestHandler = (req, res, next) => {
   next();
 };
 
-export const verifyOwner: RequestHandler = (req, res, next) => {
+// Owner permission
+export const verifyOwner: RequestHandler = (
+  req,
+  res,
+  next
+) => {
+  console.log("Owner permission check:", {
+    role: req.user?.role,
+  });
+
   if (req.user?.role !== "owner") {
     res.status(403).json({
       success: false,
@@ -127,7 +159,12 @@ export const verifyOwner: RequestHandler = (req, res, next) => {
   next();
 };
 
-export const verifyAdmin: RequestHandler = (req, res, next) => {
+// Admin permission
+export const verifyAdmin: RequestHandler = (
+  req,
+  res,
+  next
+) => {
   if (req.user?.role !== "admin") {
     res.status(403).json({
       success: false,
