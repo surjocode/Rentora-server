@@ -11,6 +11,7 @@ import rentalRoutes from "./routes/rental.routes.js";
 import userRoutes from "./routes/user.routes.js";
 import adminRoutes from "./routes/admin.routes.js";
 import uploadRoutes from "./routes/upload.routes.js";
+import paymentRoutes from "./routes/payment.routes.js";
 
 dotenv.config();
 
@@ -73,6 +74,11 @@ app.use(
   })
 );
 
+// IMPORTANT: Payment routes must come before express.json()
+// because Stripe webhook requires the original raw request body.
+app.use("/api/payments", paymentRoutes);
+
+// JSON Middleware for other API routes
 app.use(express.json());
 
 // Home Route
@@ -88,25 +94,26 @@ app.get("/health", (_req, res) => {
   });
 });
 
-
-
 // Equipment Routes
 app.use("/api/equipment", equipmentRoutes);
+
 // Category Routes
 app.use("/api/categories", categoryRoutes);
+
 // Favorite Routes
 app.use("/api/favorites", favoriteRoutes);
+
 // Rental Routes
 app.use("/api/rentals", rentalRoutes);
+
 // User Routes
 app.use("/api/users", userRoutes);
+
 // Admin Routes
 app.use("/api/admin", adminRoutes);
 
+// Upload Routes
 app.use("/api/upload", uploadRoutes);
-
-
-
 
 // Not Found Route
 app.use((_req, res) => {
@@ -121,7 +128,9 @@ async function startServer() {
   try {
     await connectToMongoDB();
 
-    app.listen(PORT);
+    app.listen(PORT, () => {
+      console.log(`Rentora server running on port ${PORT}`);
+    });
   } catch (error) {
     console.error("Server startup failed:", error);
     process.exit(1);
