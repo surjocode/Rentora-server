@@ -247,48 +247,74 @@ router.get(
 );
 
 // Get Single Approved Equipment
-router.get("/:id", async (req: Request, res: Response) => {
-  try {
-    const id = req.params.id;
+router.get(
+  "/:id",
+  verifyToken,
+  async (req: Request, res: Response) => {
+    try {
+      const id = req.params.id;
 
-    if (typeof id !== "string" || !ObjectId.isValid(id)) {
-      res.status(400).json({
+      if (typeof id !== "string" || !ObjectId.isValid(id)) {
+        res.status(400).json({
+          success: false,
+          message: "Invalid equipment ID",
+        });
+        return;
+      }
+
+      const db = getDB();
+
+      // Find equipment by ID
+      const equipment = await db
+        .collection<Equipment>("equipment")
+        .findOne({
+          _id: new ObjectId(id),
+        });
+
+      if (!equipment) {
+        res.status(404).json({
+          success: false,
+          message: "Equipment not found",
+        });
+        return;
+      }
+
+      // Get logged-in user's information
+      const currentUserEmail = req.user?.email?.toLowerCase();
+      const currentUserRole = req.user?.role;
+
+      // Check access permission
+      const isApproved = equipment.status === "approved";
+
+      const isOwner =
+        currentUserRole === "owner" &&
+        equipment.ownerEmail.toLowerCase() === currentUserEmail;
+
+      const isAdmin = currentUserRole === "admin";
+
+      // Only approved equipment or authorized owner/admin can view
+      if (!isApproved && !isOwner && !isAdmin) {
+        res.status(404).json({
+          success: false,
+          message: "Equipment not found",
+        });
+        return;
+      }
+
+      res.status(200).json({
+        success: true,
+        data: equipment,
+      });
+    } catch (error) {
+      console.error("Get single equipment error:", error);
+
+      res.status(500).json({
         success: false,
-        message: "Invalid equipment ID",
+        message: "Failed to fetch equipment",
       });
-      return;
     }
-
-    const db = getDB();
-
-    const equipment = await db
-      .collection<Equipment>("equipment")
-      .findOne({
-        _id: new ObjectId(id),
-        status: "approved",
-      });
-
-    if (!equipment) {
-      res.status(404).json({
-        success: false,
-        message: "Equipment not found",
-      });
-      return;
-    }
-
-    res.status(200).json({
-      success: true,
-      data: equipment,
-    });
-  } catch (error) {
-    console.error("Get single equipment error:", error);
-
-    res.status(500).json({
-      success: false,
-      message: "Failed to fetch equipment",
-    });
   }
-});
+);
 
 // Add New Equipment (Owner Only)
 router.post(
