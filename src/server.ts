@@ -66,6 +66,11 @@ export function getDB(): Db {
   return db;
 }
 
+// Get MongoDB Client
+export function getMongoClient(): MongoClient {
+  return client;
+}
+
 // Middlewares
 app.use(
   cors({
