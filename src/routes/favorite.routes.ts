@@ -1,93 +1,109 @@
 
 import { Router, type Request, type Response } from "express";
 import { ObjectId } from "mongodb";
+
 import { getDB } from "../server.js";
 import { verifyToken } from "../middleware/auth.middleware.js";
 
 const router = Router();
 
-// Favorite Interface
+// ==========================================
+// TYPES
+// ==========================================
+
 interface Favorite {
   ownerEmail: string;
   equipmentId: ObjectId;
   createdAt: Date;
 }
 
-// Protect All Favorite Routes
+// ==========================================
+// HELPERS
+// ==========================================
+
+const getUserEmail = (req: Request): string | null => {
+  const email = req.user?.email;
+
+  return typeof email === "string" && email.trim()
+    ? email.trim().toLowerCase()
+    : null;
+};
+
+const isValidObjectId = (id: unknown): id is string =>
+  typeof id === "string" && ObjectId.isValid(id);
+
+// Protect all favorite routes
 router.use(verifyToken);
 
-// Add to Favorites
+// ==========================================
+// ADD TO FAVORITES
+// ==========================================
+
 router.post("/", async (req: Request, res: Response) => {
+  
   try {
-    const { equipmentId } = req.body;
+    const { equipmentId } = req.body as {
+      equipmentId?: unknown;
+    };
 
-    if (!equipmentId) {
-      res.status(400).json({
+    if (!isValidObjectId(equipmentId)) {
+      return res.status(400).json({
         success: false,
-        message: "Equipment ID is required",
+        message: "A valid equipment ID is required.",
       });
-      return;
     }
 
-    if (typeof equipmentId !== "string" || !ObjectId.isValid(equipmentId)) {
-      res.status(400).json({
-        success: false,
-        message: "Invalid equipment ID",
-      });
-      return;
-    }
-
-    const ownerEmail = req.user?.email;
+    const ownerEmail = getUserEmail(req);
 
     if (!ownerEmail) {
-      res.status(401).json({
+      return res.status(401).json({
         success: false,
-        message: "User authentication required",
+        message: "User authentication required.",
       });
-      return;
     }
 
     const db = getDB();
+    const objectId = new ObjectId(equipmentId);
 
+    // Only approved equipment can be added
     const equipment = await db.collection("equipment").findOne({
-      _id: new ObjectId(equipmentId),
+      _id: objectId,
       status: "approved",
     });
 
     if (!equipment) {
-      res.status(404).json({
+      return res.status(404).json({
         success: false,
-        message: "Equipment not found",
+        message: "Equipment not found.",
       });
-      return;
     }
 
-    const favoritesCollection = db.collection<Favorite>("favorites");
+    const favoritesCollection =
+      db.collection<Favorite>("favorites");
 
     const existingFavorite = await favoritesCollection.findOne({
-      ownerEmail: ownerEmail.toLowerCase(),
-      equipmentId: new ObjectId(equipmentId),
+      ownerEmail,
+      equipmentId: objectId,
     });
 
     if (existingFavorite) {
-      res.status(409).json({
+      return res.status(409).json({
         success: false,
-        message: "Equipment is already in favorites",
+        message: "Equipment is already in favorites.",
       });
-      return;
     }
 
     const newFavorite: Favorite = {
-      ownerEmail: ownerEmail.toLowerCase(),
-      equipmentId: new ObjectId(equipmentId),
+      ownerEmail,
+      equipmentId: objectId,
       createdAt: new Date(),
     };
 
     const result = await favoritesCollection.insertOne(newFavorite);
 
-    res.status(201).json({
+    return res.status(201).json({
       success: true,
-      message: "Equipment added to favorites successfully",
+      message: "Equipment added to favorites successfully.",
       data: {
         _id: result.insertedId,
         ...newFavorite,
@@ -96,24 +112,27 @@ router.post("/", async (req: Request, res: Response) => {
   } catch (error) {
     console.error("Add favorite error:", error);
 
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
-      message: "Failed to add favorite",
+      message: "Failed to add favorite.",
     });
   }
 });
 
-// Get My Favorites
+// ==========================================
+// GET MY FAVORITES
+// ==========================================
+
 router.get("/", async (req: Request, res: Response) => {
+  console.log("my pay");
   try {
-    const ownerEmail = req.user?.email;
+    const ownerEmail = getUserEmail(req);
 
     if (!ownerEmail) {
-      res.status(401).json({
+      return res.status(401).json({
         success: false,
-        message: "User authentication required",
+        message: "User authentication required.",
       });
-      return;
     }
 
     const db = getDB();
@@ -122,9 +141,7 @@ router.get("/", async (req: Request, res: Response) => {
       .collection<Favorite>("favorites")
       .aggregate([
         {
-          $match: {
-            ownerEmail: ownerEmail.toLowerCase(),
-          },
+          $match: { ownerEmail },
         },
         {
           $lookup: {
@@ -150,74 +167,76 @@ router.get("/", async (req: Request, res: Response) => {
       ])
       .toArray();
 
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
-      message: "Favorites fetched successfully",
+      message: "Favorites fetched successfully.",
       data: favorites,
     });
   } catch (error) {
     console.error("Get favorites error:", error);
 
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
-      message: "Failed to fetch favorites",
+      message: "Failed to fetch favorites.",
     });
   }
 });
 
-// Remove from Favorites
-router.delete("/:equipmentId", async (req: Request, res: Response) => {
-  try {
-    const equipmentId = req.params.equipmentId;
+// ==========================================
+// REMOVE FROM FAVORITES
+// ==========================================
 
-    if (
-      typeof equipmentId !== "string" ||
-      !ObjectId.isValid(equipmentId)
-    ) {
-      res.status(400).json({
-        success: false,
-        message: "Invalid equipment ID",
+router.delete(
+  "/:equipmentId",
+  async (req: Request, res: Response) => {
+    try {
+      const { equipmentId } = req.params;
+
+      if (!isValidObjectId(equipmentId)) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid equipment ID.",
+        });
+      }
+
+      const ownerEmail = getUserEmail(req);
+
+      if (!ownerEmail) {
+        return res.status(401).json({
+          success: false,
+          message: "User authentication required.",
+        });
+      }
+
+      const db = getDB();
+
+      const result = await db
+        .collection<Favorite>("favorites")
+        .deleteOne({
+          ownerEmail,
+          equipmentId: new ObjectId(equipmentId),
+        });
+
+      if (result.deletedCount === 0) {
+        return res.status(404).json({
+          success: false,
+          message: "Favorite not found.",
+        });
+      }
+
+      return res.status(200).json({
+        success: true,
+        message: "Favorite removed successfully.",
       });
-      return;
-    }
+    } catch (error) {
+      console.error("Remove favorite error:", error);
 
-    const ownerEmail = req.user?.email;
-
-    if (!ownerEmail) {
-      res.status(401).json({
+      return res.status(500).json({
         success: false,
-        message: "User authentication required",
+        message: "Failed to remove favorite.",
       });
-      return;
     }
-
-    const db = getDB();
-
-    const result = await db.collection<Favorite>("favorites").deleteOne({
-      ownerEmail: ownerEmail.toLowerCase(),
-      equipmentId: new ObjectId(equipmentId),
-    });
-
-    if (result.deletedCount === 0) {
-      res.status(404).json({
-        success: false,
-        message: "Favorite not found",
-      });
-      return;
-    }
-
-    res.status(200).json({
-      success: true,
-      message: "Favorite removed successfully",
-    });
-  } catch (error) {
-    console.error("Remove favorite error:", error);
-
-    res.status(500).json({
-      success: false,
-      message: "Failed to remove favorite",
-    });
   }
-});
+);
 
 export default router;

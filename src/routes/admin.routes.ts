@@ -1,6 +1,7 @@
 
 import { Router, type Request, type Response } from "express";
 import { ObjectId } from "mongodb";
+
 import { getDB } from "../server.js";
 import {
   verifyToken,
@@ -9,16 +10,43 @@ import {
 
 const router = Router();
 
-// Protect all Admin Routes
+const USER_ROLES = ["renter", "owner", "admin"] as const;
+const EQUIPMENT_STATUSES = ["approved", "rejected"] as const;
+const RENTAL_TYPES = ["daily", "weekly", "monthly"] as const;
+
+type UserRole = (typeof USER_ROLES)[number];
+type EquipmentStatus = (typeof EQUIPMENT_STATUSES)[number];
+type RentalType = (typeof RENTAL_TYPES)[number];
+
+type UpdateData = Record<string, unknown>;
+
+const isValidId = (id: unknown): id is string =>
+  typeof id === "string" && ObjectId.isValid(id);
+
+const sendError = (
+  res: Response,
+  status: number,
+  message: string
+) => {
+  return res.status(status).json({
+    success: false,
+    message,
+  });
+};
+
+// Protect all admin routes
 router.use(verifyToken, verifyAdmin);
 
-// Get All Users
+// ==========================================
+// GET ALL USERS
+// ==========================================
+
 router.get("/users", async (_req: Request, res: Response) => {
   try {
     const db = getDB();
 
     const users = await db
-      .collection("users")
+      .collection("user")
       .find(
         {},
         {
@@ -34,105 +62,148 @@ router.get("/users", async (_req: Request, res: Response) => {
       .sort({ createdAt: -1 })
       .toArray();
 
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
-      message: "Users fetched successfully",
+      message: "Users fetched successfully.",
       data: users,
     });
   } catch (error) {
     console.error("Get users error:", error);
 
-    res.status(500).json({
-      success: false,
-      message: "Failed to fetch users",
-    });
+    return sendError(res, 500, "Failed to fetch users.");
   }
 });
 
-// Update User Role
-router.patch("/users/:id/role", async (req: Request, res: Response) => {
+// ==========================================
+// UPDATE USER ROLE
+// ==========================================
+
+router.patch(
+  "/users/:id/role",
+  async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+      const { role } = req.body as { role?: unknown };
+
+      if (!isValidId(id)) {
+        return sendError(res, 400, "Invalid user ID.");
+      }
+
+      if (
+        typeof role !== "string" ||
+        !USER_ROLES.includes(role as UserRole)
+      ) {
+        return sendError(res, 400, "Invalid user role.");
+      }
+
+      const db = getDB();
+
+      const adminEmail = req.user?.email?.toLowerCase();
+
+      if (!adminEmail) {
+        return sendError(res, 401, "Authentication required.");
+      }
+
+      const currentAdmin = await db.collection("user").findOne({
+        email: adminEmail,
+        role: "admin",
+      });
+
+      if (!currentAdmin) {
+        return sendError(
+          res,
+          403,
+          "Admin permission is no longer valid."
+        );
+      }
+
+      const userId = new ObjectId(id);
+
+      // Prevent changing own admin role
+      if (currentAdmin._id.toString() === id) {
+        return sendError(
+          res,
+          403,
+          "You cannot change your own role."
+        );
+      }
+
+      const result = await db.collection("user").updateOne(
+        { _id: userId },
+        {
+          $set: {
+            role,
+            updatedAt: new Date(),
+          },
+        }
+      );
+
+      if (result.matchedCount === 0) {
+        return sendError(res, 404, "User not found.");
+      }
+
+      return res.status(200).json({
+        success: true,
+        message: "User role updated successfully.",
+      });
+    } catch (error) {
+      console.error("Update user role error:", error);
+
+      return sendError(res, 500, "Failed to update user role.");
+    }
+  }
+);
+
+// ==========================================
+// GET ALL EQUIPMENT
+// ==========================================
+
+router.get("/equipment", async (_req: Request, res: Response) => {
   try {
-    const id = req.params.id;
-    const { role } = req.body;
-
-    if (typeof id !== "string" || !ObjectId.isValid(id)) {
-      res.status(400).json({
-        success: false,
-        message: "Invalid user ID",
-      });
-      return;
-    }
-
-    if (
-      typeof role !== "string" ||
-      !["renter", "owner", "admin"].includes(role)
-    ) {
-      res.status(400).json({
-        success: false,
-        message: "Invalid user role",
-      });
-      return;
-    }
-
     const db = getDB();
 
-    const result = await db.collection("users").updateOne(
-      { _id: new ObjectId(id) },
-      {
-        $set: {
-          role,
-          updatedAt: new Date(),
-        },
-      }
-    );
+    const equipment = await db
+      .collection("equipment")
+      .find({})
+      .sort({ createdAt: -1 })
+      .toArray();
 
-    if (result.matchedCount === 0) {
-      res.status(404).json({
-        success: false,
-        message: "User not found",
-      });
-      return;
-    }
-
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
-      message: "User role updated successfully",
+      message: "Equipment fetched successfully.",
+      data: equipment,
     });
   } catch (error) {
-    console.error("Update user role error:", error);
+    console.error("Get admin equipment error:", error);
 
-    res.status(500).json({
-      success: false,
-      message: "Failed to update user role",
-    });
+    return sendError(res, 500, "Failed to fetch equipment.");
   }
 });
 
-// Approve or Reject Equipment
+// ==========================================
+// APPROVE OR REJECT EQUIPMENT
+// ==========================================
+
 router.patch(
   "/equipment/:id/status",
   async (req: Request, res: Response) => {
     try {
-      const id = req.params.id;
-      const { status } = req.body;
+      const { id } = req.params;
+      const { status } = req.body as { status?: unknown };
 
-      if (typeof id !== "string" || !ObjectId.isValid(id)) {
-        res.status(400).json({
-          success: false,
-          message: "Invalid equipment ID",
-        });
-        return;
+      if (!isValidId(id)) {
+        return sendError(res, 400, "Invalid equipment ID.");
       }
 
       if (
         typeof status !== "string" ||
-        !["approved", "rejected"].includes(status)
+        !EQUIPMENT_STATUSES.includes(status as EquipmentStatus)
       ) {
-        res.status(400).json({
-          success: false,
-          message: "Status must be approved or rejected",
-        });
-        return;
+        return sendError(
+          res,
+          400,
+          "Status must be approved or rejected."
+        );
       }
 
       const db = getDB();
@@ -151,29 +222,33 @@ router.patch(
       );
 
       if (result.matchedCount === 0) {
-        res.status(404).json({
-          success: false,
-          message: "Pending equipment not found",
-        });
-        return;
+        return sendError(
+          res,
+          404,
+          "Pending equipment not found."
+        );
       }
 
-      res.status(200).json({
+      return res.status(200).json({
         success: true,
-        message: `Equipment ${status} successfully`,
+        message: `Equipment ${status} successfully.`,
       });
     } catch (error) {
       console.error("Update equipment status error:", error);
 
-      res.status(500).json({
-        success: false,
-        message: "Failed to update equipment status",
-      });
+      return sendError(
+        res,
+        500,
+        "Failed to update equipment status."
+      );
     }
   }
 );
 
-// Get Admin Dashboard Statistics
+// ==========================================
+// GET ADMIN DASHBOARD STATISTICS
+// ==========================================
+
 router.get("/stats", async (_req: Request, res: Response) => {
   try {
     const db = getDB();
@@ -184,42 +259,224 @@ router.get("/stats", async (_req: Request, res: Response) => {
       approvedEquipment,
       pendingEquipment,
       rejectedEquipment,
-      totalRentals,
-      pendingRentals,
-      approvedRentals,
     ] = await Promise.all([
-      db.collection("users").countDocuments(),
+      db.collection("user").countDocuments(),
+
       db.collection("equipment").countDocuments(),
-      db.collection("equipment").countDocuments({ status: "approved" }),
-      db.collection("equipment").countDocuments({ status: "pending" }),
-      db.collection("equipment").countDocuments({ status: "rejected" }),
-      db.collection("rentals").countDocuments(),
-      db.collection("rentals").countDocuments({ status: "pending" }),
-      db.collection("rentals").countDocuments({ status: "approved" }),
+
+      db.collection("equipment").countDocuments({
+        status: "approved",
+      }),
+
+      db.collection("equipment").countDocuments({
+        status: "pending",
+      }),
+
+      db.collection("equipment").countDocuments({
+        status: "rejected",
+      }),
     ]);
 
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
-      message: "Admin statistics fetched successfully",
+      message: "Admin statistics fetched successfully.",
       data: {
         totalUsers,
         totalEquipment,
         approvedEquipment,
         pendingEquipment,
         rejectedEquipment,
-        totalRentals,
-        pendingRentals,
-        approvedRentals,
       },
     });
   } catch (error) {
     console.error("Get admin stats error:", error);
 
-    res.status(500).json({
-      success: false,
-      message: "Failed to fetch admin statistics",
-    });
+    return sendError(
+      res,
+      500,
+      "Failed to fetch admin statistics."
+    );
   }
 });
+
+// ==========================================
+// UPDATE EQUIPMENT
+// ==========================================
+
+router.patch(
+  "/equipment/:id",
+  async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+
+      if (!isValidId(id)) {
+        return sendError(res, 400, "Invalid equipment ID.");
+      }
+
+      const {
+        name,
+        description,
+        category,
+        rentalType,
+        pricePerDay,
+        availableQuantity,
+        condition,
+        brand,
+        model,
+        location,
+        image,
+        termsAndConditions,
+      } = req.body;
+
+      const updateData: UpdateData = {};
+
+      const stringFields: Record<string, unknown> = {
+        name,
+        description,
+        category,
+        condition,
+        brand,
+        model,
+        location,
+        image,
+        termsAndConditions,
+      };
+
+      // Validate string fields
+      for (const [key, value] of Object.entries(stringFields)) {
+        if (value === undefined) continue;
+
+        if (typeof value !== "string" || !value.trim()) {
+          return sendError(
+            res,
+            400,
+            `${key} must be a non-empty string.`
+          );
+        }
+
+        updateData[key] = value.trim();
+      }
+
+      // Validate rental pricing type
+      if (rentalType !== undefined) {
+        if (
+          typeof rentalType !== "string" ||
+          !RENTAL_TYPES.includes(rentalType as RentalType)
+        ) {
+          return sendError(res, 400, "Invalid rental type.");
+        }
+
+        updateData.rentalType = rentalType;
+      }
+
+      // Validate equipment price
+      if (pricePerDay !== undefined) {
+        if (
+          typeof pricePerDay !== "number" ||
+          !Number.isFinite(pricePerDay) ||
+          pricePerDay <= 0
+        ) {
+          return sendError(
+            res,
+            400,
+            "Price must be a positive number."
+          );
+        }
+
+        updateData.pricePerDay = pricePerDay;
+      }
+
+      // Validate available quantity
+      if (availableQuantity !== undefined) {
+        if (
+          typeof availableQuantity !== "number" ||
+          !Number.isInteger(availableQuantity) ||
+          availableQuantity < 0
+        ) {
+          return sendError(
+            res,
+            400,
+            "Quantity must be a non-negative integer."
+          );
+        }
+
+        updateData.availableQuantity = availableQuantity;
+      }
+
+      if (Object.keys(updateData).length === 0) {
+        return sendError(
+          res,
+          400,
+          "No valid fields provided for update."
+        );
+      }
+
+      updateData.updatedAt = new Date();
+
+      const db = getDB();
+      const equipmentId = new ObjectId(id);
+
+      const result = await db.collection("equipment").updateOne(
+        { _id: equipmentId },
+        { $set: updateData }
+      );
+
+      if (result.matchedCount === 0) {
+        return sendError(res, 404, "Equipment not found.");
+      }
+
+      const updatedEquipment = await db
+        .collection("equipment")
+        .findOne({ _id: equipmentId });
+
+      return res.status(200).json({
+        success: true,
+        message: "Equipment updated successfully.",
+        data: updatedEquipment,
+      });
+    } catch (error) {
+      console.error("Admin update equipment error:", error);
+
+      return sendError(res, 500, "Failed to update equipment.");
+    }
+  }
+);
+
+// ==========================================
+// DELETE EQUIPMENT
+// ==========================================
+
+router.delete(
+  "/equipment/:id",
+  async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+
+      if (!isValidId(id)) {
+        return sendError(res, 400, "Invalid equipment ID.");
+      }
+
+      const db = getDB();
+      const equipmentId = new ObjectId(id);
+
+      const result = await db.collection("equipment").deleteOne({
+        _id: equipmentId,
+      });
+
+      if (result.deletedCount === 0) {
+        return sendError(res, 404, "Equipment not found.");
+      }
+
+      return res.status(200).json({
+        success: true,
+        message: "Equipment deleted successfully.",
+      });
+    } catch (error) {
+      console.error("Admin delete equipment error:", error);
+
+      return sendError(res, 500, "Failed to delete equipment.");
+    }
+  }
+);
 
 export default router;

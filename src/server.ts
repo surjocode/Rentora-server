@@ -7,37 +7,56 @@ import { MongoClient, type Db } from "mongodb";
 import equipmentRoutes from "./routes/equipment.routes.js";
 import categoryRoutes from "./routes/category.routes.js";
 import favoriteRoutes from "./routes/favorite.routes.js";
-import rentalRoutes from "./routes/rental.routes.js";
 import userRoutes from "./routes/user.routes.js";
 import adminRoutes from "./routes/admin.routes.js";
 import uploadRoutes from "./routes/upload.routes.js";
-import paymentRoutes from "./routes/payment.routes.js";
+
+// ==========================================
+// ENVIRONMENT CONFIGURATION
+// ==========================================
 
 dotenv.config();
 
 const app = express();
-const PORT = process.env.PORT || 5000;
 
+const PORT = Number(process.env.PORT ?? 5000);
 const MONGODB_URI = process.env.MONGODB_URI;
+const DB_NAME = process.env.DB_NAME || "rentora";
+const CLIENT_URL = process.env.CLIENT_URL;
 
 if (!MONGODB_URI) {
-  throw new Error("MONGODB_URI is missing from .env file");
+  throw new Error("MONGODB_URI is missing from .env file.");
 }
+
+if (!Number.isInteger(PORT) || PORT < 1 || PORT > 65535) {
+  throw new Error("PORT must be a valid port number.");
+}
+
+if (!CLIENT_URL) {
+  throw new Error("CLIENT_URL is missing from .env file.");
+}
+
+// ==========================================
+// MONGODB CONFIGURATION
+// ==========================================
 
 const client = new MongoClient(MONGODB_URI);
 
 let db: Db | null = null;
 
-// MongoDB Connection
+// Connect to MongoDB
 export async function connectToMongoDB(): Promise<Db> {
   try {
     await client.connect();
 
-    db = client.db(process.env.DB_NAME || "rentora");
+    db = client.db(DB_NAME);
 
     console.log("Successfully connected to MongoDB!");
 
-    const collections = await db.listCollections().toArray();
+    // Ensure equipment collection exists
+    const collections = await db
+      .listCollections({}, { nameOnly: true })
+      .toArray();
 
     const equipmentExists = collections.some(
       (collection) => collection.name === "equipment"
@@ -57,34 +76,38 @@ export async function connectToMongoDB(): Promise<Db> {
   }
 }
 
-// Get Database
+// Get database instance
 export function getDB(): Db {
   if (!db) {
-    throw new Error("Database is not connected!");
+    throw new Error("Database is not connected.");
   }
 
   return db;
 }
 
-// Get MongoDB Client
+// Get MongoDB client
 export function getMongoClient(): MongoClient {
   return client;
 }
 
-// Middlewares
+// ==========================================
+// MIDDLEWARES
+// ==========================================
+
+// CORS Middleware
 app.use(
   cors({
-    origin: process.env.CLIENT_URL,
+    origin: CLIENT_URL,
     credentials: true,
   })
 );
 
-// IMPORTANT: Payment routes must come before express.json()
-// because Stripe webhook requires the original raw request body.
-app.use("/api/payments", paymentRoutes);
-
-// JSON Middleware for other API routes
+// JSON Middleware
 app.use(express.json());
+
+// ==========================================
+// PUBLIC ROUTES
+// ==========================================
 
 // Home Route
 app.get("/", (_req, res) => {
@@ -95,9 +118,13 @@ app.get("/", (_req, res) => {
 app.get("/health", (_req, res) => {
   res.status(200).json({
     success: true,
-    message: "Rentora Server is healthy",
+    message: "Rentora Server is healthy.",
   });
 });
+
+// ==========================================
+// API ROUTES
+// ==========================================
 
 // Equipment Routes
 app.use("/api/equipment", equipmentRoutes);
@@ -108,9 +135,6 @@ app.use("/api/categories", categoryRoutes);
 // Favorite Routes
 app.use("/api/favorites", favoriteRoutes);
 
-// Rental Routes
-app.use("/api/rentals", rentalRoutes);
-
 // User Routes
 app.use("/api/users", userRoutes);
 
@@ -120,24 +144,33 @@ app.use("/api/admin", adminRoutes);
 // Upload Routes
 app.use("/api/upload", uploadRoutes);
 
-// Not Found Route
+// ==========================================
+// NOT FOUND HANDLER
+// ==========================================
+
 app.use((_req, res) => {
   res.status(404).json({
     success: false,
-    message: "API route not found",
+    message: "API route not found.",
   });
 });
 
-// Start Server
-async function startServer() {
+// ==========================================
+// SERVER STARTUP
+// ==========================================
+
+async function startServer(): Promise<void> {
   try {
     await connectToMongoDB();
 
     app.listen(PORT, () => {
-      console.log(`Rentora server running on port ${PORT}`);
+      console.log(`Rentora server running on port ${PORT}.`);
     });
   } catch (error) {
     console.error("Server startup failed:", error);
+
+    await client.close().catch(() => undefined);
+
     process.exit(1);
   }
 }

@@ -8,20 +8,27 @@ import type {
 
 import { createRemoteJWKSet, jwtVerify } from "jose";
 
-type UserRole = "renter" | "owner" | "admin";
+// ==========================================
+// TYPES
+// ==========================================
+
+export type UserRole = "renter" | "owner" | "admin";
 
 export interface AuthenticatedUser {
   email: string;
   role: UserRole;
 }
 
-declare global {
-  namespace Express {
-    interface Request {
-      user?: AuthenticatedUser;
-    }
+// Extend Express Request
+declare module "express-serve-static-core" {
+  interface Request {
+    user?: AuthenticatedUser;
   }
 }
+
+// ==========================================
+// JWKS CONFIGURATION
+// ==========================================
 
 let JWKS: ReturnType<typeof createRemoteJWKSet> | null = null;
 
@@ -38,15 +45,28 @@ function getAuthConfig() {
     );
   }
 
-  return { baseURL, JWKS };
+  return {
+    baseURL,
+    JWKS,
+  };
 }
 
-// Verify JWT token
+// ==========================================
+// ROLE VALIDATION
+// ==========================================
+
+const isUserRole = (role: unknown): role is UserRole =>
+  role === "renter" || role === "owner" || role === "admin";
+
+// ==========================================
+// VERIFY JWT TOKEN
+// ==========================================
+
 export const verifyToken: RequestHandler = async (
   req: Request,
   res: Response,
   next: NextFunction
-) => {
+): Promise<void> => {
   try {
     const authorization = req.headers.authorization;
 
@@ -55,6 +75,7 @@ export const verifyToken: RequestHandler = async (
         success: false,
         message: "Unauthorized. Token is required.",
       });
+
       return;
     }
 
@@ -65,6 +86,7 @@ export const verifyToken: RequestHandler = async (
         success: false,
         message: "Invalid authorization token.",
       });
+
       return;
     }
 
@@ -75,37 +97,33 @@ export const verifyToken: RequestHandler = async (
       audience: baseURL,
     });
 
+    // Validate token payload
     const email = payload.email;
     const role = payload.role;
 
-    if (typeof email !== "string") {
+    if (typeof email !== "string" || !email.trim()) {
       res.status(401).json({
         success: false,
         message: "Invalid token email.",
       });
+
       return;
     }
 
-    if (
-      role !== "renter" &&
-      role !== "owner" &&
-      role !== "admin"
-    ) {
+    if (!isUserRole(role)) {
       res.status(403).json({
         success: false,
         message: "Invalid user role.",
       });
+
       return;
     }
 
+    // Attach authenticated user to request
     req.user = {
-      email,
+      email: email.trim().toLowerCase(),
       role,
     };
-
-    console.log("JWT verified successfully:", {
-      role: req.user.role,
-    });
 
     next();
   } catch (error) {
@@ -121,7 +139,10 @@ export const verifyToken: RequestHandler = async (
   }
 };
 
-// Renter permission
+// ==========================================
+// RENTER AUTHORIZATION
+// ==========================================
+
 export const verifyRenter: RequestHandler = (
   req,
   res,
@@ -132,34 +153,38 @@ export const verifyRenter: RequestHandler = (
       success: false,
       message: "Access denied. Renter permission required.",
     });
+
     return;
   }
 
   next();
 };
 
-// Owner permission
+// ==========================================
+// OWNER AUTHORIZATION
+// ==========================================
+
 export const verifyOwner: RequestHandler = (
   req,
   res,
   next
 ) => {
-  console.log("Owner permission check:", {
-    role: req.user?.role,
-  });
-
   if (req.user?.role !== "owner") {
     res.status(403).json({
       success: false,
       message: "Access denied. Owner permission required.",
     });
+
     return;
   }
 
   next();
 };
 
-// Admin permission
+// ==========================================
+// ADMIN AUTHORIZATION
+// ==========================================
+
 export const verifyAdmin: RequestHandler = (
   req,
   res,
@@ -170,6 +195,7 @@ export const verifyAdmin: RequestHandler = (
       success: false,
       message: "Access denied. Admin permission required.",
     });
+
     return;
   }
 

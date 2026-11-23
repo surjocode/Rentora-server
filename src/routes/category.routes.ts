@@ -1,29 +1,42 @@
 
 import { Router, type Request, type Response } from "express";
+
 import { getDB } from "../server.js";
 
 const router = Router();
 
-// Get All Categories
+// ==========================================
+// GET ALL APPROVED EQUIPMENT CATEGORIES
+// ==========================================
+
 router.get("/", async (_req: Request, res: Response) => {
   try {
     const db = getDB();
 
     const categories = await db
       .collection("equipment")
-      .distinct("category", { status: "approved" });
+      .distinct("category", {
+        status: "approved",
+      });
 
-    res.status(200).json({
+    const sortedCategories = categories
+      .filter(
+        (category): category is string =>
+          typeof category === "string" && category.trim().length > 0
+      )
+      .sort((a, b) => a.localeCompare(b));
+
+    return res.status(200).json({
       success: true,
-      message: "Categories fetched successfully",
-      data: categories,
+      message: "Categories fetched successfully.",
+      data: sortedCategories,
     });
   } catch (error) {
     console.error("Get categories error:", error);
 
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
-      message: "Failed to fetch categories",
+      message: "Failed to fetch categories.",
     });
   }
 });

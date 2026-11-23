@@ -1,34 +1,31 @@
 
-import { Router, type Request, type Response } from "express";
+import { Router, type Request, type Response, type NextFunction } from "express";
 import multer from "multer";
-import { verifyToken, verifyOwner } from "../middleware/auth.middleware.js";
+
+import {
+  verifyToken,
+  verifyOwner,
+} from "../middleware/auth.middleware.js";
 
 const router = Router();
 
-// Image upload configuration
-const upload = multer({
-  storage: multer.memoryStorage(),
-  limits: {
-    fileSize: 5 * 1024 * 1024,
-  },
-  fileFilter: (_req, file, callback) => {
-    const allowedTypes = [
-      "image/jpeg",
-      "image/png",
-      "image/webp",
-      "image/gif",
-    ];
+// ==========================================
+// CONFIGURATION
+// ==========================================
 
-    if (!allowedTypes.includes(file.mimetype)) {
-      callback(new Error("Only JPEG, PNG, WebP and GIF images are allowed"));
-      return;
-    }
+const MAX_FILE_SIZE = 5 * 1024 * 1024;
 
-    callback(null, true);
-  },
-});
+const ALLOWED_IMAGE_TYPES = [
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+  "image/gif",
+];
 
-// ImgBB response type
+// ==========================================
+// TYPES
+// ==========================================
+
 interface ImgBBResponse {
   success: boolean;
   data?: {
@@ -40,40 +37,78 @@ interface ImgBBResponse {
   };
 }
 
-// Upload Equipment Image
+// ==========================================
+// MULTER CONFIGURATION
+// ==========================================
+
+const upload = multer({
+  storage: multer.memoryStorage(),
+
+  limits: {
+    fileSize: MAX_FILE_SIZE,
+    files: 1,
+  },
+
+  fileFilter: (_req, file, callback) => {
+    if (!ALLOWED_IMAGE_TYPES.includes(file.mimetype)) {
+      callback(
+        new Error("Only JPEG, PNG, WebP and GIF images are allowed.")
+      );
+      return;
+    }
+
+    callback(null, true);
+  },
+});
+
+// ==========================================
+// UPLOAD ERROR HANDLER
+// ==========================================
+
+const handleUpload = (
+  req: Request,
+  res: Response,
+  next: NextFunction
+): void => {
+  upload.single("image")(req, res, (error: unknown) => {
+    if (error instanceof multer.MulterError) {
+      const isTooLarge = error.code === "LIMIT_FILE_SIZE";
+
+      res.status(isTooLarge ? 413 : 400).json({
+        success: false,
+        message: isTooLarge
+          ? "Image size cannot exceed 5 MB."
+          : "Image upload failed.",
+      });
+
+      return;
+    }
+
+    if (error) {
+      res.status(400).json({
+        success: false,
+        message:
+          error instanceof Error
+            ? error.message
+            : "Invalid image upload.",
+      });
+
+      return;
+    }
+
+    next();
+  });
+};
+
+// ==========================================
+// UPLOAD EQUIPMENT IMAGE
+// ==========================================
+
 router.post(
   "/",
   verifyToken,
   verifyOwner,
-  (req, res, next) => {
-    upload.single("image")(req, res, (error) => {
-      if (error instanceof multer.MulterError) {
-        res.status(
-          error.code === "LIMIT_FILE_SIZE" ? 413 : 400
-        ).json({
-          success: false,
-          message:
-            error.code === "LIMIT_FILE_SIZE"
-              ? "Image size cannot exceed 5 MB"
-              : "Image upload failed",
-        });
-        return;
-      }
-
-      if (error) {
-        res.status(400).json({
-          success: false,
-          message:
-            error instanceof Error
-              ? error.message
-              : "Invalid image upload",
-        });
-        return;
-      }
-
-      next();
-    });
-  },
+  handleUpload,
   async (req: Request, res: Response): Promise<void> => {
     try {
       const image = req.file;
@@ -81,21 +116,22 @@ router.post(
       if (!image) {
         res.status(400).json({
           success: false,
-          message: "Please select a valid image file",
+          message: "Please select a valid image file.",
         });
+
         return;
       }
 
       const apiKey = process.env.IMGBB_API_KEY;
-     
 
       if (!apiKey) {
-        console.error("IMGBB_API_KEY is missing");
+        console.error("IMGBB_API_KEY is missing.");
 
         res.status(500).json({
           success: false,
-          message: "Image upload configuration is missing",
+          message: "Image upload configuration is missing.",
         });
+
         return;
       }
 
@@ -113,6 +149,7 @@ router.post(
       const response = await fetch(uploadURL, {
         method: "POST",
         body: formData,
+        signal: AbortSignal.timeout(30_000),
       });
 
       const result = (await response.json()) as ImgBBResponse;
@@ -120,33 +157,35 @@ router.post(
       if (!response.ok || !result.success || !result.data?.url) {
         console.error("ImgBB upload failed:", {
           status: response.status,
-          message: result.error?.message || "Unknown ImgBB error",
+          message: result.error?.message || "Unknown ImgBB error.",
         });
 
         res.status(502).json({
           success: false,
-          message:
-            result.error?.message || "Failed to upload image to ImgBB",
+          message: "Failed to upload image to ImgBB.",
         });
+
         return;
       }
 
       res.status(200).json({
         success: true,
-        message: "Image uploaded successfully",
+        message: "Image uploaded successfully.",
         data: {
           url: result.data.url,
         },
       });
     } catch (error) {
-      console.error(
-        "Image upload error:",
-        error instanceof Error ? error.message : "Unknown error"
-      );
+      console.error("Image upload error:", error);
 
-      res.status(500).json({
+      const isTimeout =
+        error instanceof Error && error.name === "TimeoutError";
+
+      res.status(isTimeout ? 504 : 500).json({
         success: false,
-        message: "Something went wrong while uploading image",
+        message: isTimeout
+          ? "Image upload request timed out. Please try again."
+          : "Something went wrong while uploading the image.",
       });
     }
   }
