@@ -15,6 +15,8 @@ interface User {
   email: string;
   image?: string;
   role?: "renter" | "owner" | "admin";
+  phone?: string;
+  address?: string;
   createdAt?: Date;
   updatedAt?: Date;
 }
@@ -22,6 +24,8 @@ interface User {
 interface UpdateProfileBody {
   name?: unknown;
   image?: unknown;
+  phone?: unknown;
+  address?: unknown;
 }
 
 // ==========================================
@@ -58,13 +62,13 @@ router.get("/", async (req: Request, res: Response): Promise<void> => {
         success: false,
         message: "User authentication required.",
       });
-
       return;
     }
 
     const db = getDB();
 
-    const user = await db.collection<User>("users").findOne(
+    // Better Auth default MongoDB collection name is "user"
+    const user = await db.collection<User>("user").findOne(
       { email },
       {
         projection: {
@@ -73,7 +77,10 @@ router.get("/", async (req: Request, res: Response): Promise<void> => {
           email: 1,
           image: 1,
           role: 1,
+          phone: 1,
+          address: 1,
           createdAt: 1,
+          updatedAt: 1,
         },
       }
     );
@@ -83,7 +90,6 @@ router.get("/", async (req: Request, res: Response): Promise<void> => {
         success: false,
         message: "User not found.",
       });
-
       return;
     }
 
@@ -115,13 +121,27 @@ router.patch("/", async (req: Request, res: Response): Promise<void> => {
         success: false,
         message: "User authentication required.",
       });
-
       return;
     }
 
-    const { name, image } = req.body as UpdateProfileBody;
+    if (
+      !req.body ||
+      typeof req.body !== "object" ||
+      Array.isArray(req.body)
+    ) {
+      res.status(400).json({
+        success: false,
+        message: "Invalid profile information.",
+      });
+      return;
+    }
 
-    const updates: Partial<Pick<User, "name" | "image">> = {};
+    const { name, image, phone, address } =
+      req.body as UpdateProfileBody;
+
+    const updates: Partial<
+      Pick<User, "name" | "image" | "phone" | "address">
+    > = {};
 
     // Validate name
     if (name !== undefined) {
@@ -134,7 +154,6 @@ router.patch("/", async (req: Request, res: Response): Promise<void> => {
           success: false,
           message: "Name must be between 1 and 100 characters.",
         });
-
         return;
       }
 
@@ -151,7 +170,6 @@ router.patch("/", async (req: Request, res: Response): Promise<void> => {
           success: false,
           message: "Image must be a valid URL string.",
         });
-
         return;
       }
 
@@ -165,11 +183,55 @@ router.patch("/", async (req: Request, res: Response): Promise<void> => {
           success: false,
           message: "Please provide a valid image URL.",
         });
-
         return;
       }
 
       updates.image = trimmedImage;
+    }
+
+    // Validate phone
+    if (phone !== undefined) {
+      if (
+        typeof phone !== "string" ||
+        phone.trim().length > 30
+      ) {
+        res.status(400).json({
+          success: false,
+          message: "Phone number must not exceed 30 characters.",
+        });
+        return;
+      }
+
+      const trimmedPhone = phone.trim();
+
+      if (
+        trimmedPhone &&
+        !/^\+?[0-9\s().-]+$/.test(trimmedPhone)
+      ) {
+        res.status(400).json({
+          success: false,
+          message: "Please provide a valid phone number.",
+        });
+        return;
+      }
+
+      updates.phone = trimmedPhone;
+    }
+
+    // Validate address
+    if (address !== undefined) {
+      if (
+        typeof address !== "string" ||
+        address.trim().length > 500
+      ) {
+        res.status(400).json({
+          success: false,
+          message: "Address must not exceed 500 characters.",
+        });
+        return;
+      }
+
+      updates.address = address.trim();
     }
 
     // Check whether there is anything to update
@@ -178,13 +240,12 @@ router.patch("/", async (req: Request, res: Response): Promise<void> => {
         success: false,
         message: "No valid profile information provided.",
       });
-
       return;
     }
 
     const db = getDB();
 
-    const result = await db.collection<User>("users").updateOne(
+    const result = await db.collection<User>("user").updateOne(
       { email },
       {
         $set: {
@@ -199,12 +260,11 @@ router.patch("/", async (req: Request, res: Response): Promise<void> => {
         success: false,
         message: "User not found.",
       });
-
       return;
     }
 
     // Fetch updated profile
-    const updatedUser = await db.collection<User>("users").findOne(
+    const updatedUser = await db.collection<User>("user").findOne(
       { email },
       {
         projection: {
@@ -213,6 +273,9 @@ router.patch("/", async (req: Request, res: Response): Promise<void> => {
           email: 1,
           image: 1,
           role: 1,
+          phone: 1,
+          address: 1,
+          createdAt: 1,
           updatedAt: 1,
         },
       }

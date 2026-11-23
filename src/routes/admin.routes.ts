@@ -11,7 +11,11 @@ import {
 const router = Router();
 
 const USER_ROLES = ["renter", "owner", "admin"] as const;
-const EQUIPMENT_STATUSES = ["approved", "rejected"] as const;
+const EQUIPMENT_STATUSES = [
+  "pending",
+  "approved",
+  "rejected",
+] as const;
 const RENTAL_TYPES = ["daily", "weekly", "monthly"] as const;
 
 type UserRole = (typeof USER_ROLES)[number];
@@ -184,6 +188,11 @@ router.get("/equipment", async (_req: Request, res: Response) => {
 // APPROVE OR REJECT EQUIPMENT
 // ==========================================
 
+
+ // ==========================================
+ // UPDATE EQUIPMENT STATUS
+ // ==========================================
+
 router.patch(
   "/equipment/:id/status",
   async (req: Request, res: Response) => {
@@ -202,17 +211,15 @@ router.patch(
         return sendError(
           res,
           400,
-          "Status must be approved or rejected."
+          "Status must be pending, approved or rejected."
         );
       }
 
       const db = getDB();
+      const equipmentId = new ObjectId(id);
 
       const result = await db.collection("equipment").updateOne(
-        {
-          _id: new ObjectId(id),
-          status: "pending",
-        },
+        { _id: equipmentId },
         {
           $set: {
             status,
@@ -222,16 +229,17 @@ router.patch(
       );
 
       if (result.matchedCount === 0) {
-        return sendError(
-          res,
-          404,
-          "Pending equipment not found."
-        );
+        return sendError(res, 404, "Equipment not found.");
       }
+
+      const updatedEquipment = await db
+        .collection("equipment")
+        .findOne({ _id: equipmentId });
 
       return res.status(200).json({
         success: true,
-        message: `Equipment ${status} successfully.`,
+        message: `Equipment status changed to ${status} successfully.`,
+        data: updatedEquipment,
       });
     } catch (error) {
       console.error("Update equipment status error:", error);
@@ -244,6 +252,7 @@ router.patch(
     }
   }
 );
+
 
 // ==========================================
 // GET ADMIN DASHBOARD STATISTICS

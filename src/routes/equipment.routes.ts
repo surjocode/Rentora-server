@@ -125,12 +125,10 @@ router.get("/", async (req: Request, res: Response) => {
       ? requestedSort
       : "newest";
 
-    // Validate rental type
     if (rentalType && !isRentalType(rentalType)) {
       return sendError(res, 400, "Invalid rental type.");
     }
 
-    // Validate minimum price
     if (
       minPrice !== undefined &&
       (!Number.isFinite(minPrice) || minPrice < 0)
@@ -138,7 +136,6 @@ router.get("/", async (req: Request, res: Response) => {
       return sendError(res, 400, "Invalid minimum price.");
     }
 
-    // Validate maximum price
     if (
       maxPrice !== undefined &&
       (!Number.isFinite(maxPrice) || maxPrice < 0)
@@ -146,7 +143,6 @@ router.get("/", async (req: Request, res: Response) => {
       return sendError(res, 400, "Invalid maximum price.");
     }
 
-    // Validate price range
     if (
       minPrice !== undefined &&
       maxPrice !== undefined &&
@@ -159,7 +155,6 @@ router.get("/", async (req: Request, res: Response) => {
       );
     }
 
-    // Validate availability
     if (
       available &&
       available !== "true" &&
@@ -168,12 +163,10 @@ router.get("/", async (req: Request, res: Response) => {
       return sendError(res, 400, "Invalid availability filter.");
     }
 
-    // Base filter
     const filter: Filter<Equipment> = {
       status: "approved",
     };
 
-    // Search
     if (search) {
       const searchRegex = new RegExp(escapeRegex(search), "i");
 
@@ -186,22 +179,18 @@ router.get("/", async (req: Request, res: Response) => {
       ];
     }
 
-    // Location filter
     if (location) {
       filter.location = new RegExp(escapeRegex(location), "i");
     }
 
-    // Category filter
     if (category) {
       filter.category = category;
     }
 
-    // Rental type filter
     if (rentalType && isRentalType(rentalType)) {
       filter.rentalType = rentalType;
     }
 
-    // Price range filter
     if (minPrice !== undefined || maxPrice !== undefined) {
       filter.pricePerDay = {
         ...(minPrice !== undefined ? { $gte: minPrice } : {}),
@@ -209,14 +198,12 @@ router.get("/", async (req: Request, res: Response) => {
       };
     }
 
-    // Availability filter
     if (available === "true") {
       filter.availableQuantity = { $gt: 0 };
     } else if (available === "false") {
       filter.availableQuantity = { $lte: 0 };
     }
 
-    // Sorting
     const sortOptions = {
       newest: { createdAt: -1 },
       oldest: { createdAt: 1 },
@@ -243,7 +230,40 @@ router.get("/", async (req: Request, res: Response) => {
 });
 
 // ==========================================
+// GET FEATURED EQUIPMENT
+// SHOW LATEST 6 APPROVED ITEMS
+// ==========================================
+
+router.get("/featured", async (_req: Request, res: Response) => {
+  try {
+    const db = getDB();
+
+    const equipment = await db
+      .collection<Equipment>("equipment")
+      .find({ status: "approved" })
+      .sort({ createdAt: -1 })
+      .limit(6)
+      .toArray();
+
+    return res.status(200).json({
+      success: true,
+      message: "Featured equipment fetched successfully.",
+      data: equipment,
+    });
+  } catch (error) {
+    console.error("Get featured equipment error:", error);
+
+    return sendError(
+      res,
+      500,
+      "Failed to fetch featured equipment."
+    );
+  }
+});
+
+// ==========================================
 // GET OWNER'S EQUIPMENT
+// OWNER ONLY
 // ==========================================
 
 router.get(
@@ -280,12 +300,12 @@ router.get(
 );
 
 // ==========================================
-// GET SINGLE EQUIPMENT
+// GET SINGLE APPROVED EQUIPMENT
+// PUBLIC ACCESS
 // ==========================================
 
 router.get(
   "/:id",
-  verifyToken,
   async (req: Request, res: Response) => {
     try {
       const { id } = req.params;
@@ -300,24 +320,10 @@ router.get(
         .collection<Equipment>("equipment")
         .findOne({
           _id: new ObjectId(id),
+          status: "approved",
         });
 
       if (!equipment) {
-        return sendError(res, 404, "Equipment not found.");
-      }
-
-      const currentUserEmail = req.user?.email?.toLowerCase();
-      const currentUserRole = req.user?.role;
-
-      const isApproved = equipment.status === "approved";
-
-      const isOwner =
-        currentUserRole === "owner" &&
-        equipment.ownerEmail.toLowerCase() === currentUserEmail;
-
-      const isAdmin = currentUserRole === "admin";
-
-      if (!isApproved && !isOwner && !isAdmin) {
         return sendError(res, 404, "Equipment not found.");
       }
 
@@ -507,7 +513,6 @@ router.patch(
         "termsAndConditions",
       ] as const;
 
-      // Validate and update string fields
       for (const field of stringFields) {
         const value = body[field];
 
@@ -524,7 +529,6 @@ router.patch(
         updates[field] = value.trim();
       }
 
-      // Validate rental type
       if (body.rentalType !== undefined) {
         if (!isRentalType(body.rentalType)) {
           return sendError(
@@ -537,7 +541,6 @@ router.patch(
         updates.rentalType = body.rentalType;
       }
 
-      // Validate price
       if (body.pricePerDay !== undefined) {
         const price = Number(body.pricePerDay);
 
@@ -552,7 +555,6 @@ router.patch(
         updates.pricePerDay = price;
       }
 
-      // Validate available quantity
       if (body.availableQuantity !== undefined) {
         const quantity = Number(body.availableQuantity);
 

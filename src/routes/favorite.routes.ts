@@ -124,7 +124,7 @@ router.post("/", async (req: Request, res: Response) => {
 // ==========================================
 
 router.get("/", async (req: Request, res: Response) => {
-  console.log("my pay");
+ 
   try {
     const ownerEmail = getUserEmail(req);
 

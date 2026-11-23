@@ -10,6 +10,8 @@ import favoriteRoutes from "./routes/favorite.routes.js";
 import userRoutes from "./routes/user.routes.js";
 import adminRoutes from "./routes/admin.routes.js";
 import uploadRoutes from "./routes/upload.routes.js";
+import rentalRoutes from "./routes/rental.routes.js";
+import paymentRoutes from "./routes/payment.routes.js";
 
 // ==========================================
 // ENVIRONMENT CONFIGURATION
@@ -94,12 +96,20 @@ export function getMongoClient(): MongoClient {
 // MIDDLEWARES
 // ==========================================
 
+
 // CORS Middleware
 app.use(
   cors({
     origin: CLIENT_URL,
     credentials: true,
   })
+);
+
+// Stripe Webhook Raw Body Middleware
+// IMPORTANT: Must be before express.json()
+app.use(
+  "/api/payments/webhook",
+  express.raw({ type: "application/json" })
 );
 
 // JSON Middleware
@@ -143,7 +153,11 @@ app.use("/api/admin", adminRoutes);
 
 // Upload Routes
 app.use("/api/upload", uploadRoutes);
+// Rental Routes
+app.use("/api/rentals", rentalRoutes);
 
+// Payment Routes
+app.use("/api/payments", paymentRoutes);
 // ==========================================
 // NOT FOUND HANDLER
 // ==========================================
