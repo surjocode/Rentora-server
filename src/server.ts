@@ -27,7 +27,7 @@ const DB_NAME = process.env.DB_NAME || "rentora";
 const CLIENT_URL = process.env.CLIENT_URL;
 
 if (!MONGODB_URI) {
-  throw new Error("MONGODB_URI is missing from .env file.");
+  throw new Error("MONGODB_URI is missing.");
 }
 
 if (!Number.isInteger(PORT) || PORT < 1 || PORT > 65535) {
@@ -35,7 +35,7 @@ if (!Number.isInteger(PORT) || PORT < 1 || PORT > 65535) {
 }
 
 if (!CLIENT_URL) {
-  throw new Error("CLIENT_URL is missing from .env file.");
+  throw new Error("CLIENT_URL is missing.");
 }
 
 // ==========================================
@@ -45,40 +45,44 @@ if (!CLIENT_URL) {
 const client = new MongoClient(MONGODB_URI);
 
 let db: Db | null = null;
+let connectionPromise: Promise<Db> | null = null;
 
-// Connect to MongoDB
 export async function connectToMongoDB(): Promise<Db> {
-  try {
-    await client.connect();
-
-    db = client.db(DB_NAME);
-
-    console.log("Successfully connected to MongoDB!");
-
-    // Ensure equipment collection exists
-    const collections = await db
-      .listCollections({}, { nameOnly: true })
-      .toArray();
-
-    const equipmentExists = collections.some(
-      (collection) => collection.name === "equipment"
-    );
-
-    if (!equipmentExists) {
-      await db.createCollection("equipment");
-      console.log("Equipment collection created!");
-    } else {
-      console.log("Equipment collection already exists!");
-    }
-
+  if (db) {
     return db;
-  } catch (error) {
-    console.error("MongoDB connection failed:", error);
-    throw error;
   }
+
+  if (!connectionPromise) {
+    connectionPromise = (async () => {
+      await client.connect();
+
+      db = client.db(DB_NAME);
+
+      console.log("Successfully connected to MongoDB!");
+
+      const collections = await db
+        .listCollections({}, { nameOnly: true })
+        .toArray();
+
+      const equipmentExists = collections.some(
+        (collection) => collection.name === "equipment"
+      );
+
+      if (!equipmentExists) {
+        await db.createCollection("equipment");
+        console.log("Equipment collection created!");
+      }
+
+      return db;
+    })().catch((error) => {
+      connectionPromise = null;
+      throw error;
+    });
+  }
+
+  return connectionPromise;
 }
 
-// Get database instance
 export function getDB(): Db {
   if (!db) {
     throw new Error("Database is not connected.");
@@ -87,7 +91,6 @@ export function getDB(): Db {
   return db;
 }
 
-// Get MongoDB client
 export function getMongoClient(): MongoClient {
   return client;
 }
@@ -96,8 +99,6 @@ export function getMongoClient(): MongoClient {
 // MIDDLEWARES
 // ==========================================
 
-
-// CORS Middleware
 app.use(
   cors({
     origin: CLIENT_URL,
@@ -106,25 +107,23 @@ app.use(
 );
 
 // Stripe Webhook Raw Body Middleware
-// IMPORTANT: Must be before express.json()
+// Must be before express.json()
+
 app.use(
   "/api/payments/webhook",
   express.raw({ type: "application/json" })
 );
 
-// JSON Middleware
 app.use(express.json());
 
 // ==========================================
 // PUBLIC ROUTES
 // ==========================================
 
-// Home Route
 app.get("/", (_req, res) => {
   res.status(200).send("Rentora API is running!");
 });
 
-// Health Check Route
 app.get("/health", (_req, res) => {
   res.status(200).json({
     success: true,
@@ -136,28 +135,15 @@ app.get("/health", (_req, res) => {
 // API ROUTES
 // ==========================================
 
-// Equipment Routes
 app.use("/api/equipment", equipmentRoutes);
-
-// Category Routes
 app.use("/api/categories", categoryRoutes);
-
-// Favorite Routes
 app.use("/api/favorites", favoriteRoutes);
-
-// User Routes
 app.use("/api/users", userRoutes);
-
-// Admin Routes
 app.use("/api/admin", adminRoutes);
-
-// Upload Routes
 app.use("/api/upload", uploadRoutes);
-// Rental Routes
 app.use("/api/rentals", rentalRoutes);
-
-// Payment Routes
 app.use("/api/payments", paymentRoutes);
+
 // ==========================================
 // NOT FOUND HANDLER
 // ==========================================
@@ -170,23 +156,31 @@ app.use((_req, res) => {
 });
 
 // ==========================================
-// SERVER STARTUP
+// EXPORT EXPRESS APP
 // ==========================================
 
-async function startServer(): Promise<void> {
-  try {
-    await connectToMongoDB();
+export default app;
 
-    app.listen(PORT, () => {
-      console.log(`Rentora server running on port ${PORT}.`);
-    });
-  } catch (error) {
-    console.error("Server startup failed:", error);
+// ==========================================
+// LOCAL DEVELOPMENT SERVER
+// ==========================================
 
-    await client.close().catch(() => undefined);
+if (process.env.NODE_ENV !== "production") {
+  async function startServer(): Promise<void> {
+    try {
+      await connectToMongoDB();
 
-    process.exit(1);
+      app.listen(PORT, () => {
+        console.log(`Rentora server running on port ${PORT}.`);
+      });
+    } catch (error) {
+      console.error("Server startup failed:", error);
+
+      await client.close().catch(() => undefined);
+
+      process.exit(1);
+    }
   }
-}
 
-startServer();
+  startServer();
+}
