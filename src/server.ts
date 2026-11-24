@@ -47,6 +47,7 @@ const client = new MongoClient(MONGODB_URI);
 let db: Db | null = null;
 let connectionPromise: Promise<Db> | null = null;
 
+// Connect to MongoDB
 export async function connectToMongoDB(): Promise<Db> {
   if (db) {
     return db;
@@ -60,6 +61,7 @@ export async function connectToMongoDB(): Promise<Db> {
 
       console.log("Successfully connected to MongoDB!");
 
+      // Ensure equipment collection exists
       const collections = await db
         .listCollections({}, { nameOnly: true })
         .toArray();
@@ -71,6 +73,8 @@ export async function connectToMongoDB(): Promise<Db> {
       if (!equipmentExists) {
         await db.createCollection("equipment");
         console.log("Equipment collection created!");
+      } else {
+        console.log("Equipment collection already exists!");
       }
 
       return db;
@@ -83,6 +87,7 @@ export async function connectToMongoDB(): Promise<Db> {
   return connectionPromise;
 }
 
+// Get database instance
 export function getDB(): Db {
   if (!db) {
     throw new Error("Database is not connected.");
@@ -91,6 +96,7 @@ export function getDB(): Db {
   return db;
 }
 
+// Get MongoDB client
 export function getMongoClient(): MongoClient {
   return client;
 }
@@ -99,6 +105,7 @@ export function getMongoClient(): MongoClient {
 // MIDDLEWARES
 // ==========================================
 
+// CORS Middleware
 app.use(
   cors({
     origin: CLIENT_URL,
@@ -106,24 +113,46 @@ app.use(
   })
 );
 
-// Stripe Webhook Raw Body Middleware
-// Must be before express.json()
+// ==========================================
+// STRIPE WEBHOOK RAW BODY MIDDLEWARE
+// IMPORTANT: Must be before express.json()
+// ==========================================
 
 app.use(
   "/api/payments/webhook",
   express.raw({ type: "application/json" })
 );
 
+// ==========================================
+// JSON MIDDLEWARE
+// ==========================================
+
 app.use(express.json());
+
+// ==========================================
+// DATABASE CONNECTION MIDDLEWARE
+// ==========================================
+
+app.use(async (_req, _res, next) => {
+  try {
+    await connectToMongoDB();
+    next();
+  } catch (error) {
+    console.error("Database connection failed:", error);
+    next(error);
+  }
+});
 
 // ==========================================
 // PUBLIC ROUTES
 // ==========================================
 
+// Home Route
 app.get("/", (_req, res) => {
   res.status(200).send("Rentora API is running!");
 });
 
+// Health Check Route
 app.get("/health", (_req, res) => {
   res.status(200).json({
     success: true,
@@ -136,12 +165,19 @@ app.get("/health", (_req, res) => {
 // ==========================================
 
 app.use("/api/equipment", equipmentRoutes);
+
 app.use("/api/categories", categoryRoutes);
+
 app.use("/api/favorites", favoriteRoutes);
+
 app.use("/api/users", userRoutes);
+
 app.use("/api/admin", adminRoutes);
+
 app.use("/api/upload", uploadRoutes);
+
 app.use("/api/rentals", rentalRoutes);
+
 app.use("/api/payments", paymentRoutes);
 
 // ==========================================
@@ -156,7 +192,27 @@ app.use((_req, res) => {
 });
 
 // ==========================================
-// EXPORT EXPRESS APP
+// ERROR HANDLER
+// ==========================================
+
+app.use(
+  (
+    error: unknown,
+    _req: express.Request,
+    res: express.Response,
+    _next: express.NextFunction
+  ) => {
+    console.error("API Error:", error);
+
+    res.status(500).json({
+      success: false,
+      message: "Internal server error.",
+    });
+  }
+);
+
+// ==========================================
+// EXPORT EXPRESS APP FOR VERCEL
 // ==========================================
 
 export default app;
