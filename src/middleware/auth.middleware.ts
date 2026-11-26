@@ -69,6 +69,7 @@ export const verifyToken: RequestHandler = async (
 ): Promise<void> => {
   try {
     const authorization = req.headers.authorization;
+    console.log( req.headers.authorization);
 
     if (!authorization?.startsWith("Bearer ")) {
       res.status(401).json({
