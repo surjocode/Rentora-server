@@ -3,10 +3,10 @@ import { Router, type Request, type Response } from "express";
 import { ObjectId, type Filter } from "mongodb";
 
 import { getDB } from "../server.js";
-// import {
-//   verifyToken,
-//   verifyOwner,
-// } from "../middleware/auth.middleware.js";
+import {
+  verifyToken,
+  verifyOwner,
+} from "../middleware/auth.middleware.js";
 
 const router = Router();
 
@@ -268,8 +268,8 @@ router.get("/featured", async (_req: Request, res: Response) => {
 
 router.get(
   "/my",
-  // verifyToken,
-  // verifyOwner,
+  verifyToken,
+  verifyOwner,
   async (req: Request, res: Response) => {
     try {
       const ownerEmail = req.user?.email?.toLowerCase();
@@ -347,8 +347,8 @@ router.get(
 
 router.post(
   "/",
-  // verifyToken,
-  // verifyOwner,
+  verifyToken,
+  verifyOwner,
   async (req: Request, res: Response) => {
     try {
       const body = req.body as Record<string, unknown>;
@@ -478,7 +478,7 @@ router.post(
 
 router.patch(
   "/:id",
-  // verifyToken,
+  verifyToken,
   async (req: Request, res: Response) => {
     try {
       const { id } = req.params;
@@ -626,7 +626,7 @@ router.patch(
 
 router.delete(
   "/:id",
-  // verifyToken,
+  verifyToken,
   async (req: Request, res: Response) => {
     try {
       const { id } = req.params;

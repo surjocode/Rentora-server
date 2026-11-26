@@ -2,10 +2,10 @@
 import { Router, type Request, type Response, type NextFunction } from "express";
 import multer from "multer";
 
-// import {
-//   verifyToken,
-//   verifyOwner,
-// } from "../middleware/auth.middleware.js";
+import {
+  verifyToken,
+  verifyOwner,
+} from "../middleware/auth.middleware.js";
 
 const router = Router();
 
@@ -106,8 +106,8 @@ const handleUpload = (
 
 router.post(
   "/",
-  // verifyToken,
-  // verifyOwner,
+  verifyToken,
+  verifyOwner,
   handleUpload,
   async (req: Request, res: Response): Promise<void> => {
     try {

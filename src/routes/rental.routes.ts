@@ -2,12 +2,12 @@ import { Router, type Request, type Response } from "express";
 import { ObjectId } from "mongodb";
 
 import { getDB } from "../server.js";
-// import {
-//   verifyToken,
-//   verifyRenter,
-//   verifyOwner,
-//   verifyAdmin,
-// } from "../middleware/auth.middleware.js";
+import {
+  verifyToken,
+  verifyRenter,
+  verifyOwner,
+  verifyAdmin,
+} from "../middleware/auth.middleware.js";
 
 const router = Router();
 
@@ -148,8 +148,8 @@ function getPeriodCount(
 
 router.post(
   "/",
-  // verifyToken,
-  // verifyRenter,
+  verifyToken,
+  verifyRenter,
   async (req: Request, res: Response) => {
     try {
       const customerEmail = req.user?.email?.toLowerCase();
@@ -417,8 +417,8 @@ router.post(
 
 router.get(
   "/my",
-  // verifyToken,
-  // verifyRenter,
+  verifyToken,
+  verifyRenter,
   async (req: Request, res: Response) => {
     try {
       const customerEmail = req.user?.email?.toLowerCase();
@@ -463,8 +463,8 @@ router.get(
 
 router.get(
   "/owner",
-  // verifyToken,
-  // verifyOwner,
+  verifyToken,
+  verifyOwner,
   async (req: Request, res: Response) => {
     try {
       const ownerEmail = req.user?.email?.toLowerCase();
@@ -509,8 +509,8 @@ router.get(
 
 router.get(
   "/admin",
-  // verifyToken,
-  // verifyAdmin,
+  verifyToken,
+  verifyAdmin,
   async (_req: Request, res: Response) => {
     try {
       const db = getDB();
