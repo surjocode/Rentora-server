@@ -33,7 +33,7 @@ declare module "express-serve-static-core" {
 let JWKS: ReturnType<typeof createRemoteJWKSet> | null = null;
 
 function getAuthConfig() {
-  const baseURL = process.env.BETTER_AUTH_URL?.replace(/\/+$/, "");
+  const baseURL = process.env.BETTER_AUTH_URL
 
   if (!baseURL) {
     throw new Error("BETTER_AUTH_URL is missing from backend .env");
@@ -91,12 +91,11 @@ export const verifyToken: RequestHandler = async (
       return;
     }
 
-    const { baseURL, JWKS } = getAuthConfig();
+    const { JWKS } = getAuthConfig();
 
-    const { payload } = await jwtVerify(token, JWKS, {
-      issuer: baseURL,
-      audience: baseURL,
-    });
+    const { payload } = await jwtVerify(token, JWKS
+      
+    );
 
     // Validate token payload
     const email = payload.email;
