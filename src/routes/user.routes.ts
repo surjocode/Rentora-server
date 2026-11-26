@@ -2,7 +2,7 @@
 import { Router, type Request, type Response } from "express";
 
 import { getDB } from "../server.js";
-import { verifyToken } from "../middleware/auth.middleware.js";
+// import { verifyToken } from "../middleware/auth.middleware.js";
 
 const router = Router();
 
@@ -47,7 +47,7 @@ const getUserEmail = (req: Request): string | null => {
 // ==========================================
 
 // Protect all user routes
-router.use(verifyToken);
+// router.use(verifyToken);
 
 // ==========================================
 // GET LOGGED-IN USER PROFILE

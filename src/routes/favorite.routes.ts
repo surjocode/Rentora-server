@@ -3,7 +3,7 @@ import { Router, type Request, type Response } from "express";
 import { ObjectId } from "mongodb";
 
 import { getDB } from "../server.js";
-import { verifyToken } from "../middleware/auth.middleware.js";
+// import { verifyToken } from "../middleware/auth.middleware.js";
 
 const router = Router();
 
@@ -33,7 +33,7 @@ const isValidObjectId = (id: unknown): id is string =>
   typeof id === "string" && ObjectId.isValid(id);
 
 // Protect all favorite routes
-router.use(verifyToken);
+// router.use(verifyToken);
 
 // ==========================================
 // ADD TO FAVORITES
